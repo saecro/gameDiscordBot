@@ -1,5 +1,5 @@
 const Discord = require('discord.js');
-const quiz = require('./games/quiz.js')
+const quizGame = require('./games/quiz.js')
 const mathGame = require('./games/mathGame.js')
 const wordGame = require('./games/wordGame.js')
 require('dotenv').config();
@@ -52,7 +52,12 @@ client.on('messageCreate', async message => {
 
         const goingToBeRaped = Math.floor(Math.random() * 10) + 1;
         const gotRaped = Math.floor(Math.random() * 10) + 1;
-        const randomNumber = Math.floor(Math.random() * 10) + 1;
+        let randomNumbers = [];
+        while (randomNumbers.length < 8) {
+            var r = Math.floor(Math.random() * 10) + 1;
+            if (randomNumbers.indexOf(r) === -1) randomNumbers.push(r);
+        }
+        console.log(randomNumbers);
         const escapedRape = Math.floor(Math.random() * 10) + 1;
 
         try {
@@ -107,7 +112,7 @@ client.on('messageCreate', async message => {
 
             const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] });
             const guess = parseInt(collected.first().content);
-            if (guess === randomNumber) {
+            if (randomNumbers.indexOf(guess) > -1) {
                 const embed = new Discord.EmbedBuilder()
                     .setColor('#FF0000')
                     .setTitle('Rape')
