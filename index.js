@@ -1,4 +1,7 @@
 const Discord = require('discord.js');
+const quiz = require('./games/quiz.js')
+const mathGame = require('./games/mathGame.js')
+const wordGame = require('./games/wordGame.js')
 require('dotenv').config();
 
 const client = new Discord.Client({
@@ -81,7 +84,7 @@ async function startJoinPhase(message) {
     const embed = new Discord.EmbedBuilder()
         .setColor('#0099ff')
         .setTitle('React to Participate')
-        .setDescription('React with ✅ to participate in the game! You have 20 seconds.');
+        .setDescription('React with ✅ to participate in the game! You have 5 seconds.');
 
     const gameMessage = await message.channel.send({ embeds: [embed] });
     await gameMessage.react('✅');
@@ -92,7 +95,7 @@ async function startJoinPhase(message) {
         return reaction.emoji.name === '✅' && !user.bot;
     };
 
-    const collector = gameMessage.createReactionCollector({ filter, time: 20000 });
+    const collector = gameMessage.createReactionCollector({ filter, time: 5000 });
 
     collector.on('collect', (reaction, user) => {
         if (!participants.has(user.id)) {
@@ -120,18 +123,21 @@ async function sendTemporaryEmbed(channel, description, user) {
 }
 
 async function startQuizGame(message, participants) {
-    // Placeholder for actual quiz game logic
+
     message.channel.send(`Starting quiz game with: ${Array.from(participants.values()).join(', ')}`);
+    await quizGame.startQuiz(message, participants);
 }
 
 async function startWordGame(message, participants) {
     // Placeholder for actual word game logic
     message.channel.send(`Starting word game with: ${Array.from(participants.values()).join(', ')}`);
+    await wordGame.startWordGame(message, participants);
 }
 
 async function startMathGame(message, participants) {
     // Placeholder for actual math game logic
     message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
+    await mathGame.startMathGame(message, participants);
 }
 
 client.login(process.env.DISCORD_TOKEN);
