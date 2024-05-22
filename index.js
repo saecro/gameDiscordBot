@@ -50,27 +50,77 @@ client.on('messageCreate', async message => {
             return message.channel.send('You need to mention a user to rape!');
         }
 
+        const goingToBeRaped = Math.floor(Math.random() * 10) + 1;
+        const gotRaped = Math.floor(Math.random() * 10) + 1;
         const randomNumber = Math.floor(Math.random() * 10) + 1;
+        const escapedRape = Math.floor(Math.random() * 10) + 1;
 
         try {
+            const RapeResponses = {
+                goingToBeRaped: [
+                    `${mentionedUser}, You're about to get raped! Guess a number from 1 to 10 to escape the rapist.`,
+                    `${mentionedUser}, dodge the incoming rapist! Choose a number between 1 and 10 to avoid it.`,
+                    `${mentionedUser}, watch out! Pick a number from 1 to 10 to evade getting raped.`,
+                    `${mentionedUser}, a rape is imminent! Guess a number from 1 to 10 to escape unscathed.`,
+                    `${mentionedUser}, a rapist is coming your way! Choose a number between 1 and 10 to get away.`,
+                    `${mentionedUser}, danger ahead! Pick a number from 1 to 10 to avoid getting raped.`,
+                    `${mentionedUser}, incoming threat! Guess a number from 1 to 10 to sidestep it.`,
+                    `${mentionedUser}, evade the danger! Choose a number between 1 and 10 to escape being raped.`,
+                    `${mentionedUser}, brace yourself! Select a number from 1 to 10 to avoid the blow.`,
+                    `${mentionedUser}, you're about to be struck! Guess a number from 1 to 10 to dodge being raped.`
+                ],
+                gotRaped: [
+                    `${mentionedUser}, ouch! You got raped! Better luck next time.`,
+                    `${mentionedUser}, you missed it! You've been raped!`,
+                    `${mentionedUser}, that's gotta hurt! You didn't escape and you got raped..`,
+                    `${mentionedUser}, you got raped! Try again next time.`,
+                    `${mentionedUser}, you weren't fast enough! You got raped!`,
+                    `${mentionedUser}, oh no! The rapist forced himself on you.`,
+                    `${mentionedUser}, you couldn't dodge it! You got raped!`,
+                    `${mentionedUser}, unlucky! You didn't avoid getting raped.`,
+                    `${mentionedUser}, you've been raped! Better luck next time.`,
+                    `${mentionedUser}, too bad! You couldn't escape and you got raped.`
+                ],
+                escapedRape: [
+                    `${mentionedUser}, you guessed right and dodged the rapist! Well done!`,
+                    `${mentionedUser}, you avoided getting raped just in time! Nice move!`,
+                    `${mentionedUser}, that was a close one! You escaped the rapist!`,
+                    `${mentionedUser}, you're safe from the rapist! Your guess was spot on!`,
+                    `${mentionedUser}, you managed to evade being raped! Great job!`,
+                    `${mentionedUser}, you got away without being raped! Good guess!`,
+                    `${mentionedUser}, impressive! You dodged the rapist!`,
+                    `${mentionedUser}, you successfully escaped from being raped! Excellent!`,
+                    `${mentionedUser}, you're out of harm's way and the rapist can't catch you! Perfect guess!`,
+                    `${mentionedUser}, nice escape! You avoided the rapist!`
+                ],
+            }
             const filter = response => {
                 return !isNaN(response.content) && response.author.id === mentionedUser.id;
             };
+            const rapeEmbed = new Discord.EmbedBuilder()
+                .setColor('#FF0000')
+                .setTitle('Rape')
+                .setDescription(RapeResponses.goingToBeRaped[goingToBeRaped]);
 
-            const sentMessage = await message.channel.send(`${mentionedUser}, guess a number between 1 and 10.`);
+
+            await message.channel.send({ embeds: [rapeEmbed] });
 
             const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] });
             const guess = parseInt(collected.first().content);
-
             if (guess === randomNumber) {
                 const embed = new Discord.EmbedBuilder()
                     .setColor('#FF0000')
                     .setTitle('Rape')
-                    .setDescription(`<@${mentionedUser.id}> you will not get raped!`);
+                    .setDescription(RapeResponses.escapedRape[escapedRape]);
 
                 await message.channel.send({ embeds: [embed] });
             } else {
-                await message.channel.send(`<@${mentionedUser.id}>, you got raped!`);
+                const rapedEmbed = new Discord.EmbedBuilder()
+                    .setColor('#FF0000')
+                    .setTitle('Rape')
+                    .setDescription(RapeResponses.gotRaped[gotRaped]);
+
+                await message.channel.send({ embeds: [rapedEmbed] });
             }
 
         } catch (err) {
