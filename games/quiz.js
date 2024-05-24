@@ -1,11 +1,5 @@
 let currentQuestion = null;
 let currentTimeout = null;
-const trivia = require('trivia-api');
-
-trivia.getQuestions()
-    .then(questions => {
-        console.log(questions);
-    });
 
 const questions = [
     { question: "What is the capital of France?", answer: "paris" },

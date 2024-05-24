@@ -2,6 +2,7 @@ const Discord = require('discord.js');
 const quizGame = require('./games/quiz.js')
 const mathGame = require('./games/mathGame.js')
 const wordGame = require('./games/wordGame.js')
+const hangMan = require('./games/hangMan.js');
 require('dotenv').config();
 
 const client = new Discord.Client({
@@ -132,6 +133,13 @@ client.on('messageCreate', async message => {
             console.error(err);
             message.channel.send(`${mentionedUser.username} did not respond in time.`);
         }
+    } else if (command === '!starthangman') {
+        const participants = await startJoinPhase(message);
+        if (participants.size > 0) {
+            await startHangMan(message, participants);
+        } else {
+            message.channel.send('No one joined the game.');
+        }
     }
 });
 
@@ -193,6 +201,11 @@ async function startMathGame(message, participants) {
     // Placeholder for actual math game logic
     message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
     await mathGame.startMathGame(message, participants);
+}
+
+async function startHangMan(message, participants) {
+    message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
+    await hangMan.startHangMan(message, participants);
 }
 
 client.login(process.env.DISCORD_TOKEN);
