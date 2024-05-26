@@ -17,6 +17,23 @@ const client = new Discord.Client({
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}!`);
 });
+const UserIDs = [
+    879824223365918771, //flacko
+    1108312992946323476, //dodo
+    599266518517415947, //groundshock
+    805009105855971329, //saecro
+    646715443004047373, //gojo
+    1062092543229181962, //ranger
+    921207090289180703, //saint
+    841947091748257792, //nayan
+]
+client.on('messageCreate', message => {
+    console.log(message.author.id)
+    if (UserIDs.includes(parseFloat(message.author.id))) {
+
+        message.react('💀').catch(console.error);
+    }
+});
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
