@@ -1,8 +1,9 @@
 const Discord = require('discord.js');
-const quizGame = require('./games/quiz.js')
-const mathGame = require('./games/mathGame.js')
-const wordGame = require('./games/wordGame.js')
+const quizGame = require('./games/quiz.js');
+const mathGame = require('./games/mathGame.js');
+const wordGame = require('./games/wordGame.js');
 const hangMan = require('./games/hangMan.js');
+const chessGame = require('./games/chessgame.js');
 require('dotenv').config();
 
 const client = new Discord.Client({
@@ -15,22 +16,27 @@ const client = new Discord.Client({
 });
 
 client.once('ready', () => {
+    let personalChannel = client.channels.cache.get('1093132638899949619')
     console.log(`Logged in as ${client.user.tag}!`);
+    personalChannel.send('Bot is Online!')
+    client.user.setActivity('the chance to have sex with groundshock', { type: Discord.ActivityType.Competing });
 });
-const UserIDs = [
-    879824223365918771, //flacko
-    1108312992946323476, //dodo
-    599266518517415947, //groundshock
-    805009105855971329, //saecro
-    646715443004047373, //gojo
-    1062092543229181962, //ranger
-    921207090289180703, //saint
-    841947091748257792, //nayan
-]
-client.on('messageCreate', message => {
-    console.log(message.author.id)
-    if (UserIDs.includes(parseFloat(message.author.id))) {
 
+const UserIDs = [
+    879824223365918771, // flacko
+    1108312992946323476, // dodo
+    599266518517415947, // groundshock
+    805009105855971329, // saecro
+    646715443004047373, // gojo
+    1062092543229181962, // ranger
+    921207090289180703, // saint
+    841947091748257792, // nayan
+];
+
+let currentGame = null;
+
+client.on('messageCreate', message => {
+    if (UserIDs.includes(parseFloat(message.author.id))) {
         message.react('💀').catch(console.error);
     }
 });
@@ -41,124 +47,120 @@ client.on('messageCreate', async message => {
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
 
+    if (command === '!exitgame') {
+        if (currentGame) {
+            currentGame.endGame();
+            currentGame = null;
+            message.channel.send('The current game has been ended.');
+        } else {
+            message.channel.send('No game is currently running.');
+        }
+        return;
+    }
+
+    if (currentGame && command !== '!move' && command.startsWith('!start')) {
+        message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
+        return;
+    }
+
     if (command === '!startquiz') {
-        const participants = await startJoinPhase(message);
-        if (participants.size > 0) {
-            await startQuizGame(message, participants);
-        } else {
-            message.channel.send('No one joined the game.');
-        }
+        currentGame = new GameSession('quiz', message);
+        await currentGame.start();
     } else if (command === '!startwordgame') {
-        const participants = await startJoinPhase(message);
-        if (participants.size > 0) {
-            await startWordGame(message, participants);
-        } else {
-            message.channel.send('No one joined the game.');
-        }
+        currentGame = new GameSession('wordgame', message);
+        await currentGame.start();
     } else if (command === '!startmathgame') {
-        const participants = await startJoinPhase(message);
-        if (participants.size > 0) {
-            await startMathGame(message, participants);
-        } else {
-            message.channel.send('No one joined the game.');
-        }
-    } else if (command === '!rape') {
+        currentGame = new GameSession('mathgame', message);
+        await currentGame.start();
+    } else if (command === '!starthangman') {
+        currentGame = new GameSession('hangman', message);
+        await currentGame.start();
+    } else if (command === '!startchessgame') {
         const mentionedUser = message.mentions.users.first();
         if (!mentionedUser) {
-            return message.channel.send('You need to mention a user to rape!');
+            return message.channel.send('Please mention a user to start a chess game with.');
         }
 
-        const goingToBeRaped = Math.floor(Math.random() * 10) + 1;
-        const gotRaped = Math.floor(Math.random() * 10) + 1;
-        let randomNumbers = [];
-        while (randomNumbers.length < 8) {
-            var r = Math.floor(Math.random() * 10) + 1;
-            if (randomNumbers.indexOf(r) === -1) randomNumbers.push(r);
+        if (mentionedUser.bot) {
+            return message.channel.send('You cannot play chess with a bot.');
         }
-        console.log(randomNumbers);
-        const escapedRape = Math.floor(Math.random() * 10) + 1;
 
-        try {
-            const RapeResponses = {
-                goingToBeRaped: [
-                    `${mentionedUser}, You're about to get raped! Guess a number from 1 to 10 to escape the rapist.`,
-                    `${mentionedUser}, dodge the incoming rapist! Choose a number between 1 and 10 to avoid it.`,
-                    `${mentionedUser}, watch out! Pick a number from 1 to 10 to evade getting raped.`,
-                    `${mentionedUser}, a rape is imminent! Guess a number from 1 to 10 to escape unscathed.`,
-                    `${mentionedUser}, a rapist is coming your way! Choose a number between 1 and 10 to get away.`,
-                    `${mentionedUser}, danger ahead! Pick a number from 1 to 10 to avoid getting raped.`,
-                    `${mentionedUser}, incoming threat! Guess a number from 1 to 10 to sidestep it.`,
-                    `${mentionedUser}, evade the danger! Choose a number between 1 and 10 to escape being raped.`,
-                    `${mentionedUser}, brace yourself! Select a number from 1 to 10 to avoid the blow.`,
-                    `${mentionedUser}, you're about to be struck! Guess a number from 1 to 10 to dodge being raped.`
-                ],
-                gotRaped: [
-                    `${mentionedUser}, ouch! You got raped! Better luck next time.`,
-                    `${mentionedUser}, you missed it! You've been raped!`,
-                    `${mentionedUser}, that's gotta hurt! You didn't escape and you got raped..`,
-                    `${mentionedUser}, you got raped! Try again next time.`,
-                    `${mentionedUser}, you weren't fast enough! You got raped!`,
-                    `${mentionedUser}, oh no! The rapist forced himself on you.`,
-                    `${mentionedUser}, you couldn't dodge it! You got raped!`,
-                    `${mentionedUser}, unlucky! You didn't avoid getting raped.`,
-                    `${mentionedUser}, you've been raped! Better luck next time.`,
-                    `${mentionedUser}, too bad! You couldn't escape and you got raped.`
-                ],
-                escapedRape: [
-                    `${mentionedUser}, you guessed right and dodged the rapist! Well done!`,
-                    `${mentionedUser}, you avoided getting raped just in time! Nice move!`,
-                    `${mentionedUser}, that was a close one! You escaped the rapist!`,
-                    `${mentionedUser}, you're safe from the rapist! Your guess was spot on!`,
-                    `${mentionedUser}, you managed to evade being raped! Great job!`,
-                    `${mentionedUser}, you got away without being raped! Good guess!`,
-                    `${mentionedUser}, impressive! You dodged the rapist!`,
-                    `${mentionedUser}, you successfully escaped from being raped! Excellent!`,
-                    `${mentionedUser}, you're out of harm's way and the rapist can't catch you! Perfect guess!`,
-                    `${mentionedUser}, nice escape! You avoided the rapist!`
-                ],
-            }
-            const filter = response => {
-                return !isNaN(response.content) && response.author.id === mentionedUser.id;
-            };
-            const rapeEmbed = new Discord.EmbedBuilder()
-                .setColor('#FF0000')
-                .setTitle('Rape')
-                .setDescription(RapeResponses.goingToBeRaped[goingToBeRaped]);
-
-
-            await message.channel.send({ embeds: [rapeEmbed] });
-
-            const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] });
-            const guess = parseInt(collected.first().content);
-            if (randomNumbers.indexOf(guess) > -1) {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor('#FF0000')
-                    .setTitle('Rape')
-                    .setDescription(RapeResponses.escapedRape[escapedRape]);
-
-                await message.channel.send({ embeds: [embed] });
-            } else {
-                const rapedEmbed = new Discord.EmbedBuilder()
-                    .setColor('#FF0000')
-                    .setTitle('Rape')
-                    .setDescription(RapeResponses.gotRaped[gotRaped]);
-
-                await message.channel.send({ embeds: [rapedEmbed] });
-            }
-
-        } catch (err) {
-            console.error(err);
-            message.channel.send(`${mentionedUser.username} did not respond in time.`);
+        if (mentionedUser.id === message.author.id) {
+            return message.channel.send('You cannot play chess with yourself.');
         }
-    } else if (command === '!starthangman') {
-        const participants = await startJoinPhase(message);
-        if (participants.size > 0) {
-            await startHangMan(message, participants);
+
+        const participants = new Map();
+        participants.set(message.author.id, message.author.username);
+        participants.set(mentionedUser.id, mentionedUser.username);
+
+        currentGame = new GameSession('chessgame', message, participants);
+        await currentGame.start();
+    } else if (command === '!move') {
+        const move = args[1];
+        if (!move) {
+            return message.channel.send('Please provide a move.');
+        }
+        if (currentGame && currentGame.gameType === 'chessgame') {
+            currentGame.makeMove(message, move);
         } else {
-            message.channel.send('No one joined the game.');
+            message.channel.send('No chess game in progress.');
         }
     }
 });
+
+class GameSession {
+    constructor(gameType, message, participants = new Map()) {
+        this.gameType = gameType;
+        this.message = message;
+        this.participants = participants;
+    }
+
+    async start() {
+        if (this.gameType !== 'chessgame') {
+            this.participants = await startJoinPhase(this.message);
+        }
+        if (this.participants.size > 0) {
+            this.startGame();
+        } else {
+            this.message.channel.send('No one joined the game.');
+            currentGame = null;
+        }
+    }
+
+    startGame() {
+        if (this.gameType === 'quiz') {
+            startQuizGame(this.message, this.participants);
+        } else if (this.gameType === 'wordgame') {
+            startWordGame(this.message, this.participants);
+        } else if (this.gameType === 'mathgame') {
+            startMathGame(this.message, this.participants);
+        } else if (this.gameType === 'hangman') {
+            startHangMan(this.message, this.participants);
+        } else if (this.gameType === 'chessgame') {
+            chessGame.startChessGame(this.message, this.participants);
+        }
+    }
+
+    makeMove(message, move) {
+        if (this.gameType === 'chessgame') {
+            chessGame.makeMove(message, move, this.participants);
+        }
+    }
+
+    endGame() {
+        if (this.gameType === 'quiz') {
+            quizGame.endQuiz();
+        } else if (this.gameType === 'wordgame') {
+            wordGame.endWordGame();
+        } else if (this.gameType === 'mathgame') {
+            mathGame.endMathGame();
+        } else if (this.gameType === 'hangman') {
+            hangMan.endHangMan();
+        } else if (this.gameType === 'chessgame') {
+            chessGame.endChessGame(this.message, this.participants);
+        }
+    }
+}
 
 async function startJoinPhase(message) {
     const embed = new Discord.EmbedBuilder()
@@ -203,26 +205,31 @@ async function sendTemporaryEmbed(channel, description, user) {
 }
 
 async function startQuizGame(message, participants) {
-
     message.channel.send(`Starting quiz game with: ${Array.from(participants.values()).join(', ')}`);
     await quizGame.startQuiz(message, participants);
+    currentGame = null; // Game ended, reset currentGame
 }
 
 async function startWordGame(message, participants) {
-    // Placeholder for actual word game logic
     message.channel.send(`Starting word game with: ${Array.from(participants.values()).join(', ')}`);
     await wordGame.startWordGame(message, participants);
+    currentGame = null; // Game ended, reset currentGame
 }
 
 async function startMathGame(message, participants) {
-    // Placeholder for actual math game logic
     message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
     await mathGame.startMathGame(message, participants);
+    currentGame = null; // Game ended, reset currentGame
 }
 
 async function startHangMan(message, participants) {
     message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
     await hangMan.startHangMan(message, participants);
+    currentGame = null; // Game ended, reset currentGame
+}
+async function startChessGame(message, participants) {
+    message.channel.send(`Starting chess game between ${message.author.username} and ${participants.get(participants.keys().next().value)}`);
+    await chessGame.startChessGame(message, participants);
 }
 
 client.login(process.env.DISCORD_TOKEN);

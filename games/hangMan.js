@@ -1,4 +1,5 @@
 const Discord = require('discord.js');
+let isGameActive = false;
 
 async function getRandomWord() {
     const randomWords = await import('random-words');
@@ -8,12 +9,13 @@ async function getRandomWord() {
 }
 
 async function startHangMan(message, participants) {
+    isGameActive = true;
     let points = new Map();
     participants.forEach((username, id) => {
         points.set(id, 0);
     });
 
-    while (true) {
+    while (isGameActive) {
         const chosenWord = await getRandomWord();
         const revealedWord = Array(chosenWord.length).fill('-');
         const userLives = new Map();
@@ -28,7 +30,7 @@ async function startHangMan(message, participants) {
 
         await message.channel.send(`A new word has been chosen. Start guessing letters or the entire word!`);
 
-        while (Array.from(userLives.values()).some(lives => lives > 0) && revealedWord.includes('-')) {
+        while (Array.from(userLives.values()).some(lives => lives > 0) && revealedWord.includes('-') && isGameActive) {
             const currentUserId = userIds[currentIndex];
             const currentUserMention = `<@${currentUserId}>`;
 
@@ -41,34 +43,43 @@ async function startHangMan(message, participants) {
                     return correctUser && (isSingleLetter || response.content.length === chosenWord.length);
                 };
 
-                const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] }).catch(() => null);
-                if (!collected) {
-                    await message.channel.send(`${currentUserMention} took too long!`);
-                    userLives.set(currentUserId, userLives.get(currentUserId) - 1);
-                } else {
-                    const guess = collected.first().content.toLowerCase();
-                    if (guess.length === 1) {
-                        if (guessedLetters.has(guess)) {
-                            await message.channel.send(`The letter **${guess}** has already been guessed.`);
-                        } else {
-                            guessedLetters.add(guess);
-                            if (chosenWord.includes(guess)) {
-                                for (let i = 0; i < chosenWord.length; i++) {
-                                    if (chosenWord[i] === guess) {
-                                        revealedWord[i] = guess;
-                                    }
-                                }
-                            } else {
-                                userLives.set(currentUserId, userLives.get(currentUserId) - 1);
+                let validGuess = false;
+                let guess;
+                while (!validGuess && isGameActive) {
+                    const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] }).catch(() => null);
+                    if (!collected) {
+                        await message.channel.send(`${currentUserMention} took too long!`);
+                        userLives.set(currentUserId, userLives.get(currentUserId) - 1);
+                        break;
+                    }
+
+                    guess = collected.first().content.toLowerCase();
+                    if (guess.length === 1 && guessedLetters.has(guess)) {
+                        await message.channel.send(`You can't use this letter again, **${guess}** has already been guessed. Please try again.`);
+                    } else {
+                        validGuess = true;
+                    }
+                }
+
+                if (!validGuess) continue;
+
+                if (guess.length === 1) {
+                    guessedLetters.add(guess);
+                    if (chosenWord.includes(guess)) {
+                        for (let i = 0; i < chosenWord.length; i++) {
+                            if (chosenWord[i] === guess) {
+                                revealedWord[i] = guess;
                             }
                         }
-                    } else if (guess === chosenWord) {
-                        await message.channel.send(`Congratulations ${currentUserMention}! You guessed the word **${chosenWord}** and win the round!`);
-                        points.set(currentUserId, points.get(currentUserId) + 5);
-                        break;
                     } else {
                         userLives.set(currentUserId, userLives.get(currentUserId) - 1);
                     }
+                } else if (guess === chosenWord) {
+                    await message.channel.send(`Congratulations ${currentUserMention}! You guessed the word **${chosenWord}** and win the round!`);
+                    points.set(currentUserId, points.get(currentUserId) + 5);
+                    break;
+                } else {
+                    userLives.set(currentUserId, userLives.get(currentUserId) - 1);
                 }
 
                 if (!revealedWord.includes('-')) {
@@ -77,6 +88,7 @@ async function startHangMan(message, participants) {
                 }
 
                 currentIndex = (currentIndex + 1) % userIds.length;
+                await displayGuessedLetters(message, guessedLetters);
             } else {
                 currentIndex = (currentIndex + 1) % userIds.length;
             }
@@ -90,6 +102,8 @@ async function startHangMan(message, participants) {
 
         await displayLeaderboard(message, points);
     }
+
+    isGameActive = false;
 }
 
 async function displayLeaderboard(message, points) {
@@ -99,11 +113,28 @@ async function displayLeaderboard(message, points) {
     let leaderboardMessage = 'Current leaderboard:\n';
     topUsers.forEach(([userId, score], index) => {
         leaderboardMessage += `${index + 1}. <@${userId}>: ${score} points\n`;
-        console.log(`Leaderboard - ${index + 1}: <@${userId}> with ${score} points`);
     });
 
-    await message.channel.send(leaderboardMessage);
-    console.log(`Sent leaderboard message: ${leaderboardMessage}`);
+    const embed = new Discord.EmbedBuilder()
+        .setColor('#0099ff')
+        .setTitle('Leaderboard')
+        .setDescription(leaderboardMessage);
+
+    await message.channel.send({ embeds: [embed] });
 }
 
-module.exports = { startHangMan };
+async function displayGuessedLetters(message, guessedLetters) {
+    const guessedLettersArray = Array.from(guessedLetters);
+    const embed = new Discord.EmbedBuilder()
+        .setColor('#ff0000')
+        .setTitle('Guessed Letters')
+        .setDescription(guessedLettersArray.join(', '));
+
+    await message.channel.send({ embeds: [embed] });
+}
+
+function endHangMan() {
+    isGameActive = false;
+}
+
+module.exports = { startHangMan, endHangMan };
