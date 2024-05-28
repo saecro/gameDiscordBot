@@ -1,7 +1,9 @@
 const { Chess } = require('chess.js');
+const { generateChessboardImage } = require('./chessboard.js');
+
 const activeGames = new Map();
 
-function startChessGame(message, participants) {
+async function startChessGame(message, participants) {
     const authorId = message.author.id;
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
@@ -14,81 +16,102 @@ function startChessGame(message, participants) {
     const chess = new Chess();
     activeGames.set(gameKey, chess);
 
-    message.channel.send(`Chess game started between ${participants.get(authorId)} (white) and ${participants.get(opponentId)} (black).`);
-    message.channel.send(`\`\`\`${getAsciiBoard(chess)}\`\`\``);
+    message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
+    await sendChessboardImage(message.channel, chess.board());
 }
-
-function makeMove(message, move, participants) {
-    const authorId = message.author.id;
-    const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
-    const gameKey = `${authorId}-${opponentId}`;
+async function sendChessboardImage(channel, board, lastMove = null) {
+    try {
+        console.log('Generating chessboard image with the following board structure:');
+        console.log(JSON.stringify(board, null, 2));
+        await generateChessboardImage(board, lastMove);
+        await channel.send({ files: ['./chessboard.png'] });
+    } catch (error) {
+        console.error('Error generating or sending chessboard image:', error);
+    }
+}
+async function makeMove(message, move, gameKey) {
     const chess = activeGames.get(gameKey);
-
     if (!chess) {
-        message.channel.send('No game in progress.');
+        // Check if the game exists with swapped player IDs
+        const swappedGameKey = gameKey.split('-').reverse().join('-');
+        const swappedChess = activeGames.get(swappedGameKey);
+        if (swappedChess) {
+            gameKey = swappedGameKey;
+            chess = swappedChess;
+        } else {
+            message.channel.send('No game in progress.');
+            return;
+        }
+    }
+
+    const currentPlayerColor = chess.turn();
+    const currentPlayerId = gameKey.split('-')[currentPlayerColor === 'w' ? 0 : 1];
+
+    if (message.author.id !== currentPlayerId) {
+        message.channel.send('It is not your turn to make a move.');
         return;
     }
 
     const result = chess.move(move, { sloppy: true });
-
     if (result) {
         message.channel.send(`Move made: ${move}`);
-        message.channel.send(`\`\`\`${getAsciiBoard(chess)}\`\`\``);
+
+        // Delete the previous image of the game
+        const previousImage = message.channel.messages.cache.find(msg => msg.attachments.first()?.url.includes('chessboard.png'));
+        if (previousImage) {
+            await previousImage.delete();
+        }
+
+        await sendChessboardImage(message.channel, chess.board(), result);
 
         if (chess.isCheckmate()) {
-            message.channel.send(`Checkmate! ${message.author.username} wins.`);
+            message.channel.send(`Checkmate! <@${currentPlayerId}> wins.`);
             activeGames.delete(gameKey);
-        } else if (chess.isStalemate()) {
+        } else if (chess.isDraw()) {
             message.channel.send('Draw!');
             activeGames.delete(gameKey);
         } else {
-            message.channel.send(`It's now ${participants.get(opponentId)}'s turn.`);
+            const opponentId = gameKey.split('-').find(id => id !== currentPlayerId);
+            let messageText = `It's now <@${opponentId}>'s turn.`;
+
+            if (chess.isCheck()) {
+                messageText += ` <@${opponentId}>, your king is in check!`;
+            }
+
+            const moves = chess.moves({ verbose: true });
+            const pinnedMoves = moves.filter(m => m.flags.includes('p'));
+
+            if (pinnedMoves.length > 0) {
+                const pinnedPieces = pinnedMoves.map(m => m.piece).join(', ');
+                messageText += ` Some pieces (${pinnedPieces}) are pinned to protect the king.`;
+            }
+
+            message.channel.send(messageText);
         }
     } else {
-        message.channel.send('Invalid move. Try again.');
-    }
-}
+        if (chess.isCheck()) {
+            message.channel.send('Invalid move. Your king is in check! You must move out of check or block the check.');
+        } else {
+            const moves = chess.moves({ verbose: true });
+            const pinnedMoves = moves.filter(m => m.flags.includes('p'));
 
-function getAsciiBoard(chess) {
-    const board = chess.board();
-    const symbols = {
-        p: '♙', r: '♖', n: '♘', b: '♗', q: '♕', k: '♔',
-        P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔'
-      };
-
-    let ascii = ' a b c d e f g h\n';
-
-    for (let row = 0; row < 8; row++) {
-        ascii += (8 - row) + ' ';
-
-        for (let col = 0; col < 8; col++) {
-            const piece = board[row][col];
-            if (piece) {
-                const symbol = symbols[piece.color === 'w' ? piece.type.toUpperCase() : piece.type];
-                ascii += symbol
+            if (pinnedMoves.length > 0) {
+                const pinnedPieces = pinnedMoves.map(m => m.piece).join(', ');
+                message.channel.send(`Invalid move. Some pieces (${pinnedPieces}) are pinned to protect the king. You must move the pinned piece or block the check.`);
             } else {
-                ascii += '• ';
+                message.channel.send('Invalid move. Please try again.');
             }
         }
-
-        ascii += (8 - row) + '\n';
     }
-
-    ascii += ' a b c d e f g h\n';
-    return ascii;
 }
 
 function endChessGame(message, participants) {
-    const authorId = message.author.id;
-    const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
-    const gameKey = `${authorId}-${opponentId}`;
 
-    if (activeGames.has(gameKey)) {
-        activeGames.delete(gameKey);
-        message.channel.send('The chess game has been ended.');
-    } else {
-        message.channel.send('No game in progress.');
-    }
+    process.exit(0)
 }
 
-module.exports = { startChessGame, makeMove, endChessGame };
+module.exports = {
+    startChessGame,
+    makeMove,
+    endChessGame
+};

@@ -16,9 +16,9 @@ const client = new Discord.Client({
 });
 
 client.once('ready', () => {
-    let personalChannel = client.channels.cache.get('1093132638899949619')
+    let personalChannel = client.channels.cache.get('1093132638899949619');
     console.log(`Logged in as ${client.user.tag}!`);
-    personalChannel.send('Bot is Online!')
+    personalChannel.send('Bot is Online!');
     client.user.setActivity('the chance to have sex with groundshock', { type: Discord.ActivityType.Competing });
 });
 
@@ -96,12 +96,13 @@ client.on('messageCreate', async message => {
         currentGame = new GameSession('chessgame', message, participants);
         await currentGame.start();
     } else if (command === '!move') {
-        const move = args[1];
-        if (!move) {
-            return message.channel.send('Please provide a move.');
+        const from = args[1];
+        const to = args[2];
+        if (!from || !to) {
+            return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
         }
         if (currentGame && currentGame.gameType === 'chessgame') {
-            currentGame.makeMove(message, move);
+            await currentGame.makeMove(message, from, to);
         } else {
             message.channel.send('No chess game in progress.');
         }
@@ -109,10 +110,10 @@ client.on('messageCreate', async message => {
 });
 
 class GameSession {
-    constructor(gameType, message, participants = new Map()) {
+    constructor(gameType, message, participants = null) {
         this.gameType = gameType;
         this.message = message;
-        this.participants = participants;
+        this.participants = participants || new Map();
     }
 
     async start() {
@@ -137,16 +138,19 @@ class GameSession {
         } else if (this.gameType === 'hangman') {
             startHangMan(this.message, this.participants);
         } else if (this.gameType === 'chessgame') {
-            chessGame.startChessGame(this.message, this.participants);
+            startChessGame(this.message, this.participants);
         }
     }
 
-    makeMove(message, move) {
-        if (this.gameType === 'chessgame') {
-            chessGame.makeMove(message, move, this.participants);
+    async makeMove(message, from, to) {
+        try {
+            const gameKey = `${message.author.id}-${Array.from(this.participants.keys()).find(id => id !== message.author.id)}`;
+            await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+        } catch (error) {
+            console.error(error);
+            message.channel.send('Error making move: ' + error.message);
         }
     }
-
     endGame() {
         if (this.gameType === 'quiz') {
             quizGame.endQuiz();
@@ -157,7 +161,7 @@ class GameSession {
         } else if (this.gameType === 'hangman') {
             hangMan.endHangMan();
         } else if (this.gameType === 'chessgame') {
-            chessGame.endChessGame(this.message, this.participants);
+            chessGame.endChessGame();
         }
     }
 }
@@ -227,6 +231,7 @@ async function startHangMan(message, participants) {
     await hangMan.startHangMan(message, participants);
     currentGame = null; // Game ended, reset currentGame
 }
+
 async function startChessGame(message, participants) {
     message.channel.send(`Starting chess game between ${message.author.username} and ${participants.get(participants.keys().next().value)}`);
     await chessGame.startChessGame(message, participants);
