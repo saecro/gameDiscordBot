@@ -30,7 +30,7 @@ async function sendChessboardImage(channel, board, lastMove = null) {
     }
 }
 async function makeMove(message, move, gameKey) {
-    const chess = activeGames.get(gameKey);
+    let chess = activeGames.get(gameKey);
     if (!chess) {
         // Check if the game exists with swapped player IDs
         const swappedGameKey = gameKey.split('-').reverse().join('-');
