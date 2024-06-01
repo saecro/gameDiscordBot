@@ -4,6 +4,7 @@ const mathGame = require('./games/mathGame.js');
 const wordGame = require('./games/wordGame.js');
 const hangMan = require('./games/hangMan.js');
 const chessGame = require('./games/chessgame.js');
+const blackjackGame = require('./games/blackjackGame.js');
 require('dotenv').config();
 
 const client = new Discord.Client({
@@ -31,6 +32,7 @@ const UserIDs = [
     1062092543229181962, // ranger
     921207090289180703, // saint
     841947091748257792, // nayan
+    961899489340297266, // kaworii / bug
 ];
 
 let currentGame = null;
@@ -95,6 +97,9 @@ client.on('messageCreate', async message => {
 
         currentGame = new GameSession('chessgame', message, participants);
         await currentGame.start();
+    } else if (command === '!startblackjack') {
+        currentGame = new GameSession('blackjack', message);
+        await currentGame.start();
     } else if (command === '!move') {
         const from = args[1];
         const to = args[2];
@@ -121,24 +126,26 @@ class GameSession {
             this.participants = await startJoinPhase(this.message);
         }
         if (this.participants.size > 0) {
-            this.startGame();
+            await this.startGame();
         } else {
             this.message.channel.send('No one joined the game.');
             currentGame = null;
         }
     }
 
-    startGame() {
+    async startGame() {
         if (this.gameType === 'quiz') {
-            startQuizGame(this.message, this.participants);
+            await startQuizGame(this.message, this.participants);
         } else if (this.gameType === 'wordgame') {
-            startWordGame(this.message, this.participants);
+            await startWordGame(this.message, this.participants);
         } else if (this.gameType === 'mathgame') {
-            startMathGame(this.message, this.participants);
+            await startMathGame(this.message, this.participants);
         } else if (this.gameType === 'hangman') {
-            startHangMan(this.message, this.participants);
+            await startHangMan(this.message, this.participants);
         } else if (this.gameType === 'chessgame') {
-            startChessGame(this.message, this.participants);
+            await startChessGame(this.message, this.participants);
+        } else if (this.gameType === 'blackjack') {
+            await startBlackjackGame(this.message, this.participants);
         }
     }
 
@@ -151,6 +158,7 @@ class GameSession {
             message.channel.send('Error making move: ' + error.message);
         }
     }
+
     endGame() {
         if (this.gameType === 'quiz') {
             quizGame.endQuiz();
@@ -161,7 +169,9 @@ class GameSession {
         } else if (this.gameType === 'hangman') {
             hangMan.endHangMan();
         } else if (this.gameType === 'chessgame') {
-            chessGame.endChessGame();
+            chessGame.endChessGame(this.message, this.participants);
+        } else if (this.gameType === 'blackjack') {
+            blackjackGame.endBlackjackGame();
         }
     }
 }
@@ -233,8 +243,13 @@ async function startHangMan(message, participants) {
 }
 
 async function startChessGame(message, participants) {
-    message.channel.send(`Starting chess game between ${message.author.username} and ${participants.get(participants.keys().next().value)}`);
     await chessGame.startChessGame(message, participants);
+}
+
+async function startBlackjackGame(message, participants) {
+    message.channel.send(`Starting blackjack game with: ${Array.from(participants.values()).join(', ')}`);
+    await blackjackGame.startBlackjackGame(message, participants);
+    currentGame = null; // Game ended, reset currentGame
 }
 
 client.login(process.env.DISCORD_TOKEN);

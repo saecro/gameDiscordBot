@@ -19,6 +19,7 @@ async function startChessGame(message, participants) {
     message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
     await sendChessboardImage(message.channel, chess.board());
 }
+
 async function sendChessboardImage(channel, board, lastMove = null) {
     try {
         console.log('Generating chessboard image with the following board structure:');
@@ -29,6 +30,7 @@ async function sendChessboardImage(channel, board, lastMove = null) {
         console.error('Error generating or sending chessboard image:', error);
     }
 }
+
 async function makeMove(message, move, gameKey) {
     let chess = activeGames.get(gameKey);
     if (!chess) {
@@ -67,9 +69,11 @@ async function makeMove(message, move, gameKey) {
         if (chess.isCheckmate()) {
             message.channel.send(`Checkmate! <@${currentPlayerId}> wins.`);
             activeGames.delete(gameKey);
+            currentGame = null; // Reset currentGame
         } else if (chess.isDraw()) {
             message.channel.send('Draw!');
             activeGames.delete(gameKey);
+            currentGame = null; // Reset currentGame
         } else {
             const opponentId = gameKey.split('-').find(id => id !== currentPlayerId);
             let messageText = `It's now <@${opponentId}>'s turn.`;
@@ -106,8 +110,16 @@ async function makeMove(message, move, gameKey) {
 }
 
 function endChessGame(message, participants) {
+    const authorId = message.author.id;
+    const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
+    const gameKey = `${authorId}-${opponentId}`;
 
-    process.exit(0)
+    if (activeGames.has(gameKey)) {
+        activeGames.delete(gameKey);
+        message.channel.send('The chess game has been ended.');
+    }
+
+    currentGame = null; // Reset currentGame
 }
 
 module.exports = {

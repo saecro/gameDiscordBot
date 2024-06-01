@@ -51,7 +51,7 @@ async function generateChessboardImage(board, lastMove = null) {
     ctx.fillRect(9 * squareSize, 0, squareSize, 10 * squareSize);
 
     // Draw the letters and numbers on the sides
-    ctx.font = '32px Arial';
+    ctx.font = '40px Arial';
     ctx.fillStyle = '#000000';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
