@@ -2,28 +2,37 @@ const { Chess } = require('chess.js');
 const { generateChessboardImage } = require('./chessboard.js');
 
 const activeGames = new Map();
+const playerGames = new Map();
+const drawOffers = new Map();
+const promotionChoices = new Map();
 
 async function startChessGame(message, participants) {
     const authorId = message.author.id;
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
 
-    if (activeGames.has(gameKey)) {
-        message.channel.send('A chess game is already in progress between you two.');
+    console.log(`Starting chess game with gameKey: ${gameKey}`);
+    console.log(`Author ID: ${authorId}, Opponent ID: ${opponentId}`);
+
+    if (playerGames.has(authorId) || playerGames.has(opponentId)) {
+        console.log(`One or both players are already in a game. Author in game: ${playerGames.has(authorId)}, Opponent in game: ${playerGames.has(opponentId)}`);
+        message.channel.send('One or both players are already in a game.');
         return;
     }
 
     const chess = new Chess();
     activeGames.set(gameKey, chess);
+    playerGames.set(authorId, gameKey); // Change: Set the player ID as the key, and the gameKey as the value
+    playerGames.set(opponentId, gameKey); // Change: Set the opponent ID as the key, and the gameKey as the value
+
+    console.log(`Active games: ${JSON.stringify([...activeGames.keys()])}`);
+    console.log(`Player games: ${JSON.stringify([...playerGames.entries()])}`);
 
     message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
     await sendChessboardImage(message.channel, chess.board());
 }
-
 async function sendChessboardImage(channel, board, lastMove = null) {
     try {
-        console.log('Generating chessboard image with the following board structure:');
-        console.log(JSON.stringify(board, null, 2));
         await generateChessboardImage(board, lastMove);
         await channel.send({ files: ['./chessboard.png'] });
     } catch (error) {
@@ -31,30 +40,61 @@ async function sendChessboardImage(channel, board, lastMove = null) {
     }
 }
 
-async function makeMove(message, move, gameKey) {
+async function makeMove(message, move, promotion = 'q') {
+    const playerId = message.author.id;
+    let gameKey = playerGames.get(playerId);
+
+    console.log(`makeMove called with gameKey: ${gameKey}`);
+    console.log(`Player ID: ${playerId}`);
+
     let chess = activeGames.get(gameKey);
     if (!chess) {
-        // Check if the game exists with swapped player IDs
         const swappedGameKey = gameKey.split('-').reverse().join('-');
-        const swappedChess = activeGames.get(swappedGameKey);
-        if (swappedChess) {
+        chess = activeGames.get(swappedGameKey);
+        if (chess) {
+            console.log(`Game found with swappedGameKey: ${swappedGameKey}`);
             gameKey = swappedGameKey;
-            chess = swappedChess;
         } else {
+            console.log(`No game found for gameKey: ${gameKey} or swappedGameKey: ${swappedGameKey}`);
             message.channel.send('No game in progress.');
             return;
         }
     }
+    const opponentId = gameKey.split('-').find(id => id !== playerId);
 
     const currentPlayerColor = chess.turn();
     const currentPlayerId = gameKey.split('-')[currentPlayerColor === 'w' ? 0 : 1];
+
+    console.log(`Current player ID: ${currentPlayerId}, Current player color: ${currentPlayerColor}`);
 
     if (message.author.id !== currentPlayerId) {
         message.channel.send('It is not your turn to make a move.');
         return;
     }
 
-    const result = chess.move(move, { sloppy: true });
+    const from = move.slice(0, 2);
+    const to = move.slice(3, 5);
+    const isPromotionMove = (from[1] === '7' && to[1] === '8' && currentPlayerColor === 'w') ||
+        (from[1] === '2' && to[1] === '1' && currentPlayerColor === 'b');
+
+    if (isPromotionMove && !promotionChoices.has(gameKey)) {
+        // Ask for promotion piece
+        promotionChoices.set(gameKey, { from, to });
+        message.channel.send(`<@${currentPlayerId}>, your pawn can be promoted! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)`);
+        return;
+    }
+
+    if (isPromotionMove && promotionChoices.has(gameKey)) {
+        const choice = promotionChoices.get(gameKey).choice || promotion;
+        if (!['q', 'r', 'b', 'n'].includes(choice)) {
+            message.channel.send(`<@${currentPlayerId}>, invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)`);
+            return;
+        }
+        promotion = choice;
+        promotionChoices.delete(gameKey);
+    }
+
+    const result = chess.move({ from, to, promotion });
     if (result) {
         message.channel.send(`Move made: ${move}`);
 
@@ -68,12 +108,10 @@ async function makeMove(message, move, gameKey) {
 
         if (chess.isCheckmate()) {
             message.channel.send(`Checkmate! <@${currentPlayerId}> wins.`);
-            activeGames.delete(gameKey);
-            currentGame = null; // Reset currentGame
+            endChessGameByGameKey(gameKey);
         } else if (chess.isDraw()) {
             message.channel.send('Draw!');
-            activeGames.delete(gameKey);
-            currentGame = null; // Reset currentGame
+            endChessGameByGameKey(gameKey);
         } else {
             const opponentId = gameKey.split('-').find(id => id !== currentPlayerId);
             let messageText = `It's now <@${opponentId}>'s turn.`;
@@ -109,21 +147,71 @@ async function makeMove(message, move, gameKey) {
     }
 }
 
+function endChessGameByGameKey(gameKey) {
+    console.log(`Ending chess game with gameKey: ${gameKey}`);
+    activeGames.delete(gameKey);
+    drawOffers.delete(gameKey);
+    promotionChoices.delete(gameKey);
+}
+
 function endChessGame(message, participants) {
     const authorId = message.author.id;
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
 
-    if (activeGames.has(gameKey)) {
-        activeGames.delete(gameKey);
-        message.channel.send('The chess game has been ended.');
+    console.log(`Ending chess game with participants: ${authorId}, ${opponentId}`);
+
+    endChessGameByGameKey(gameKey);
+    const swappedGameKey = gameKey.split('-').reverse().join('-');
+    endChessGameByGameKey(swappedGameKey);
+
+    console.log(`Player games map after ending game: ${JSON.stringify([...playerGames])}`);
+
+    message.channel.send('The chess game has been ended.');
+}
+
+async function resignGame(message) {
+    const playerId = message.author.id;
+    const gameKey = playerGames.get(playerId);
+
+    console.log(`Resigning game for playerId: ${playerId}, gameKey: ${gameKey}`);
+
+    if (!gameKey) {
+        message.channel.send('You are not currently in a game.');
+        return;
     }
 
-    currentGame = null; // Reset currentGame
+    const opponentId = gameKey.split('-').find(id => id !== playerId);
+    message.channel.send(`<@${playerId}> has resigned. <@${opponentId}> wins.`);
+    endChessGameByGameKey(gameKey);
+}
+
+async function proposeDraw(message) {
+    const playerId = message.author.id;
+    const gameKey = playerGames.get(playerId);
+
+    console.log(`Proposing draw for playerId: ${playerId}, gameKey: ${gameKey}`);
+
+    if (!gameKey) {
+        message.channel.send('You are not currently in a game.');
+        return;
+    }
+
+    const opponentId = gameKey.split('-').find(id => id !== playerId);
+    if (drawOffers.has(gameKey) && drawOffers.get(gameKey) === opponentId) {
+        message.channel.send(`Draw accepted by <@${opponentId}>. The game is a draw.`);
+        endChessGameByGameKey(gameKey);
+    } else {
+        drawOffers.set(gameKey, playerId);
+        message.channel.send(`<@${playerId}> has offered a draw. <@${opponentId}>, type !draw to accept.`);
+    }
 }
 
 module.exports = {
+    playerGames,
     startChessGame,
     makeMove,
-    endChessGame
+    endChessGame,
+    resignGame,
+    proposeDraw
 };

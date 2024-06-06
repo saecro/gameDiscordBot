@@ -16,6 +16,9 @@ const client = new Discord.Client({
     ]
 });
 
+const playerGames = new Map();
+const promotionChoices = new Map();
+
 client.once('ready', () => {
     let personalChannel = client.channels.cache.get('1093132638899949619');
     console.log(`Logged in as ${client.user.tag}!`);
@@ -33,6 +36,7 @@ const UserIDs = [
     921207090289180703, // saint
     841947091748257792, // nayan
     961899489340297266, // kaworii / bug
+    665804779141726221, // wockhardt
 ];
 
 let currentGame = null;
@@ -60,7 +64,7 @@ client.on('messageCreate', async message => {
         return;
     }
 
-    if (currentGame && command !== '!move' && command.startsWith('!start')) {
+    if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame') {
         message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
         return;
     }
@@ -91,12 +95,15 @@ client.on('messageCreate', async message => {
             return message.channel.send('You cannot play chess with yourself.');
         }
 
+        if (playerGames.has(message.author.id) || playerGames.has(mentionedUser.id)) {
+            return message.channel.send('One or both players are already in a game.');
+        }
+
         const participants = new Map();
         participants.set(message.author.id, message.author.username);
         participants.set(mentionedUser.id, mentionedUser.username);
 
-        currentGame = new GameSession('chessgame', message, participants);
-        await currentGame.start();
+        await chessGame.startChessGame(message, participants);
     } else if (command === '!startblackjack') {
         currentGame = new GameSession('blackjack', message);
         await currentGame.start();
@@ -106,10 +113,43 @@ client.on('messageCreate', async message => {
         if (!from || !to) {
             return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
         }
-        if (currentGame && currentGame.gameType === 'chessgame') {
-            await currentGame.makeMove(message, from, to);
+        const gameKey = playerGames.get(message.author.id);
+        console.log(`!move command with gameKey: ${gameKey}`);
+        console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
+        if (gameKey) {
+            await chessGame.makeMove(message, `${from}-${to}`, gameKey);
         } else {
             message.channel.send('No chess game in progress.');
+        }
+    } else if (command === '!resign') {
+        await chessGame.resignGame(message);
+    } else if (command === '!draw') {
+        await chessGame.proposeDraw(message);
+    } else if (command === '!endmathgame') {
+        await mathGame.endMathGame(message);
+    }
+});
+
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+
+    console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
+    const args = message.content.trim().split(/ +/g);
+    const command = args[0].toLowerCase();
+
+    if (command === '!promote') {
+        const gameKey = playerGames.get(message.author.id);
+        console.log(`!promote command with gameKey: ${gameKey}`);
+        if (gameKey && promotionChoices.has(gameKey)) {
+            const choice = args[1].toLowerCase();
+            if (!['q', 'r', 'b', 'n'].includes(choice)) {
+                message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
+            } else {
+                promotionChoices.set(gameKey, { ...promotionChoices.get(gameKey), choice });
+                await chessGame.makeMove(message, `${promotionChoices.get(gameKey).from}-${promotionChoices.get(gameKey).to}`, gameKey, choice);
+            }
+        } else {
+            message.channel.send('No pawn to promote or invalid game.');
         }
     }
 });
@@ -141,7 +181,7 @@ class GameSession {
         } else if (this.gameType === 'mathgame') {
             await startMathGame(this.message, this.participants);
         } else if (this.gameType === 'hangman') {
-            await startHangMan(this.message, this.participants);
+            await starthangMan(this.message, this.participants);
         } else if (this.gameType === 'chessgame') {
             await startChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
@@ -152,7 +192,11 @@ class GameSession {
     async makeMove(message, from, to) {
         try {
             const gameKey = `${message.author.id}-${Array.from(this.participants.keys()).find(id => id !== message.author.id)}`;
-            await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+            console.log(`GameSession makeMove with gameKey: ${gameKey}`);
+            const result = await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+            if (!result) {
+                message.channel.send('Invalid move, try again.');
+            }
         } catch (error) {
             console.error(error);
             message.channel.send('Error making move: ' + error.message);
@@ -165,9 +209,9 @@ class GameSession {
         } else if (this.gameType === 'wordgame') {
             wordGame.endWordGame();
         } else if (this.gameType === 'mathgame') {
-            mathGame.endMathGame();
+            mathGame.endMathGame(this.message);
         } else if (this.gameType === 'hangman') {
-            hangMan.endHangMan();
+            hangMan.endhangMan();
         } else if (this.gameType === 'chessgame') {
             chessGame.endChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
@@ -236,9 +280,9 @@ async function startMathGame(message, participants) {
     currentGame = null; // Game ended, reset currentGame
 }
 
-async function startHangMan(message, participants) {
+async function starthangMan(message, participants) {
     message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
-    await hangMan.startHangMan(message, participants);
+    await hangMan.starthangMan(message, participants);
     currentGame = null; // Game ended, reset currentGame
 }
 

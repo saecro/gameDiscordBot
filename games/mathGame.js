@@ -6,10 +6,19 @@ const medals = {
     '🥉': 1
 };
 
+let gameState = {};
+
 async function startMathGame(message, participants) {
     let points = new Map();
 
-    while (true) {
+    // Store game state
+    gameState[message.channel.id] = {
+        running: true,
+        participants,
+        points
+    };
+
+    while (gameState[message.channel.id].running) {
         let collected = new Discord.Collection();
 
         const num1 = Math.floor(Math.random() * 10) + 1;
@@ -74,7 +83,7 @@ async function startMathGame(message, participants) {
             console.log('No messages collected within the time limit.');
         }
 
-
+        
         let scoresMessage = 'Scores this round:\n';
         if (collected.size > 0) {
             let place = 0;
@@ -94,6 +103,7 @@ async function startMathGame(message, participants) {
                     await message.channel.send(scoresMessage);
                     await displayLeaderboard(message, points);
                     await message.channel.send(`Congratulations <@${user.id}>! You have reached 30 points and won the game!`);
+                    delete gameState[message.channel.id];
                     return;
                 }
             }
@@ -124,4 +134,15 @@ async function displayLeaderboard(message, points) {
     console.log(`Sent leaderboard message: ${leaderboardMessage}`);
 }
 
-module.exports = { startMathGame };
+async function endMathGame(message) {
+    if (gameState[message.channel.id]) {
+        gameState[message.channel.id].running = false;
+        delete gameState[message.channel.id];
+        await message.channel.send('You have exited the game.');
+        console.log(`Math game in channel ${message.channel.id} has been ended.`);
+    } else {
+        await message.channel.send('No math game is currently running.');
+    }
+}
+
+module.exports = { startMathGame, endMathGame };

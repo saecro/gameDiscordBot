@@ -25,10 +25,10 @@ async function generateChessboardImage(board, lastMove = null) {
     const ctx = canvas.getContext('2d');
 
     // Define the colors for the chessboard squares
-    const darkSquareColor = '#b58863';
-    const lightSquareColor = '#f0d9b5';
-    const highlightDarkSquareColor = '#d2b48c';
-    const highlightLightSquareColor = '#fffbf0';
+    const darkSquareColor = '#b88762';
+    const lightSquareColor = '#edd6b0';
+    const highlightDarkSquareColor = '#dcc34b';
+    const highlightLightSquareColor = '#f6eb72';
 
     // Draw the chessboard squares
     for (let y = 0; y < 8; y++) {
@@ -84,7 +84,6 @@ async function generateChessboardImage(board, lastMove = null) {
 
             if (pieceKey && pieceImages[pieceKey]) {
                 const imagePath = path.resolve(__dirname, '../pieces', pieceImages[pieceKey]);
-                console.log(`Loading image for piece ${pieceKey}: ${imagePath}`);
                 try {
                     const image = await loadImage(imagePath);
                     ctx.drawImage(image, (x + 1) * squareSize, (y + 1) * squareSize, squareSize, squareSize);
