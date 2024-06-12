@@ -1,5 +1,5 @@
 const { Chess } = require('chess.js');
-const { generateChessboardImage } = require('./chessboard.js');
+const generateChessboardImage = require('./chessboard.js');
 
 const activeGames = new Map();
 const playerGames = new Map();
@@ -31,9 +31,9 @@ async function startChessGame(message, participants) {
     message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
     await sendChessboardImage(message.channel, chess.board());
 }
-async function sendChessboardImage(channel, board, lastMove = null) {
+async function sendChessboardImage(channel, board, lastMove = null, flip = false) {
     try {
-        await generateChessboardImage(board, lastMove);
+        await generateChessboardImage(board, lastMove, flip);
         await channel.send({ files: ['./chessboard.png'] });
     } catch (error) {
         console.error('Error generating or sending chessboard image:', error);
@@ -104,7 +104,8 @@ async function makeMove(message, move, promotion = 'q') {
             await previousImage.delete();
         }
 
-        await sendChessboardImage(message.channel, chess.board(), result);
+        const flip = chess.turn() === 'b'; // Flip the board if it's Black's turn
+        await sendChessboardImage(message.channel, chess.board(), result, flip);
 
         if (chess.isCheckmate()) {
             message.channel.send(`Checkmate! <@${currentPlayerId}> wins.`);
@@ -146,6 +147,7 @@ async function makeMove(message, move, promotion = 'q') {
         }
     }
 }
+
 
 function endChessGameByGameKey(gameKey) {
     console.log(`Ending chess game with gameKey: ${gameKey}`);

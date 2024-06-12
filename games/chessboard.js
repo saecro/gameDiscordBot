@@ -20,7 +20,7 @@ const pieceImages = {
 
 const squareSize = 80; // Size of each square on the board
 
-async function generateChessboardImage(board, lastMove = null) {
+async function generateChessboardImage(board, lastMove = null, flip = false) {
     const canvas = createCanvas((8 + 2) * squareSize, (8 + 2) * squareSize);
     const ctx = canvas.getContext('2d');
 
@@ -30,15 +30,28 @@ async function generateChessboardImage(board, lastMove = null) {
     const highlightDarkSquareColor = '#dcc34b';
     const highlightLightSquareColor = '#f6eb72';
 
+    // Convert lastMove coordinates if flip is true
+    let lastMoveFrom = lastMove ? lastMove.from : null;
+    let lastMoveTo = lastMove ? lastMove.to : null;
+    if (flip && lastMove) {
+        lastMoveFrom = String.fromCharCode(104 - (lastMove.from.charCodeAt(0) - 97)) + (9 - parseInt(lastMove.from[1]));
+        lastMoveTo = String.fromCharCode(104 - (lastMove.to.charCodeAt(0) - 97)) + (9 - parseInt(lastMove.to[1]));
+    }
+
     // Draw the chessboard squares
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
-            // Highlight the squares of the last move
-            if (lastMove && (lastMove.from === `${String.fromCharCode(97 + x)}${8 - y}` || lastMove.to === `${String.fromCharCode(97 + x)}${8 - y}`)) {
-                ctx.fillStyle = (x + y) % 2 === 0 ? highlightLightSquareColor : highlightDarkSquareColor;
-            } else {
-                ctx.fillStyle = (x + y) % 2 === 0 ? lightSquareColor : darkSquareColor;
-            }
+            const drawX = flip ? 7 - x : x;
+            const drawY = flip ? 7 - y : y;
+            const coord = `${String.fromCharCode(97 + x)}${8 - y}`;
+            const highlight = lastMove && (coord === lastMoveFrom || coord === lastMoveTo);
+            ctx.fillStyle = highlight
+                ? (drawX + drawY) % 2 === 0
+                    ? highlightLightSquareColor
+                    : highlightDarkSquareColor
+                : (drawX + drawY) % 2 === 0
+                    ? lightSquareColor
+                    : darkSquareColor;
             ctx.fillRect((x + 1) * squareSize, (y + 1) * squareSize, squareSize, squareSize);
         }
     }
@@ -57,22 +70,17 @@ async function generateChessboardImage(board, lastMove = null) {
     ctx.textBaseline = 'middle';
 
     for (let i = 0; i < 8; i++) {
-        // Letters on the bottom
-        ctx.fillText(String.fromCharCode(65 + i), (i + 1.5) * squareSize, (9.5) * squareSize);
-
-        // Letters on the top
-        ctx.fillText(String.fromCharCode(65 + i), (i + 1.5) * squareSize, 0.5 * squareSize);
-
-        // Numbers on the left
-        ctx.fillText((8 - i).toString(), 0.5 * squareSize, (i + 1.5) * squareSize);
-
-        // Numbers on the right
-        ctx.fillText((8 - i).toString(), 9.5 * squareSize, (i + 1.5) * squareSize);
+        ctx.fillText(String.fromCharCode(65 + i), ((flip ? 7 - i : i) + 1.5) * squareSize, (9.5) * squareSize);
+        ctx.fillText(String.fromCharCode(65 + i), ((flip ? 7 - i : i) + 1.5) * squareSize, 0.5 * squareSize);
+        ctx.fillText((8 - i).toString(), 0.5 * squareSize, ((flip ? 7 - i : i) + 1.5) * squareSize);
+        ctx.fillText((8 - i).toString(), 9.5 * squareSize, ((flip ? 7 - i : i) + 1.5) * squareSize);
     }
 
     // Draw the pieces on the board
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
+            const drawX = flip ? 7 - x : x;
+            const drawY = flip ? 7 - y : y;
             const piece = board[y][x];
             let pieceKey;
 
@@ -86,7 +94,7 @@ async function generateChessboardImage(board, lastMove = null) {
                 const imagePath = path.resolve(__dirname, '../pieces', pieceImages[pieceKey]);
                 try {
                     const image = await loadImage(imagePath);
-                    ctx.drawImage(image, (x + 1) * squareSize, (y + 1) * squareSize, squareSize, squareSize);
+                    ctx.drawImage(image, (drawX + 1) * squareSize, (drawY + 1) * squareSize, squareSize, squareSize);
                 } catch (error) {
                     console.error(`Error loading image for piece ${pieceKey} at ${imagePath}:`, error);
                 }
@@ -98,4 +106,4 @@ async function generateChessboardImage(board, lastMove = null) {
     fs.writeFileSync('./chessboard.png', buffer);
 }
 
-module.exports = { generateChessboardImage };
+module.exports = generateChessboardImage;

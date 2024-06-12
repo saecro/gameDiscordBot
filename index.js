@@ -16,7 +16,6 @@ const client = new Discord.Client({
     ]
 });
 
-const playerGames = new Map();
 const promotionChoices = new Map();
 
 client.once('ready', () => {
@@ -95,7 +94,7 @@ client.on('messageCreate', async message => {
             return message.channel.send('You cannot play chess with yourself.');
         }
 
-        if (playerGames.has(message.author.id) || playerGames.has(mentionedUser.id)) {
+        if (chessGame.playerGames.has(message.author.id) || chessGame.playerGames.has(mentionedUser.id)) {
             return message.channel.send('One or both players are already in a game.');
         }
 
@@ -113,9 +112,9 @@ client.on('messageCreate', async message => {
         if (!from || !to) {
             return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
         }
-        const gameKey = playerGames.get(message.author.id);
+        const gameKey = chessGame.playerGames.get(message.author.id);
         console.log(`!move command with gameKey: ${gameKey}`);
-        console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
+        console.log(`Player games map: ${JSON.stringify([...chessGame.playerGames])}`);
         if (gameKey) {
             await chessGame.makeMove(message, `${from}-${to}`, gameKey);
         } else {
@@ -133,12 +132,12 @@ client.on('messageCreate', async message => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
+    console.log(`Player games map before message handling: ${JSON.stringify([...chessGame.playerGames])}`);
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
 
     if (command === '!promote') {
-        const gameKey = playerGames.get(message.author.id);
+        const gameKey = chessGame.playerGames.get(message.author.id);
         console.log(`!promote command with gameKey: ${gameKey}`);
         if (gameKey && promotionChoices.has(gameKey)) {
             const choice = args[1].toLowerCase();
@@ -181,7 +180,7 @@ class GameSession {
         } else if (this.gameType === 'mathgame') {
             await startMathGame(this.message, this.participants);
         } else if (this.gameType === 'hangman') {
-            await starthangMan(this.message, this.participants);
+            await startHangMan(this.message, this.participants);
         } else if (this.gameType === 'chessgame') {
             await startChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
@@ -211,7 +210,7 @@ class GameSession {
         } else if (this.gameType === 'mathgame') {
             mathGame.endMathGame(this.message);
         } else if (this.gameType === 'hangman') {
-            hangMan.endhangMan();
+            hangMan.endHangMan();
         } else if (this.gameType === 'chessgame') {
             chessGame.endChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
@@ -280,9 +279,9 @@ async function startMathGame(message, participants) {
     currentGame = null; // Game ended, reset currentGame
 }
 
-async function starthangMan(message, participants) {
+async function startHangMan(message, participants) {
     message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
-    await hangMan.starthangMan(message, participants);
+    await hangMan.startHangMan(message, participants);
     currentGame = null; // Game ended, reset currentGame
 }
 
