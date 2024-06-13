@@ -1,11 +1,13 @@
+const fs = require('fs')
 const Discord = require('discord.js');
+require('dotenv').config();
+
 const quizGame = require('./games/quiz.js');
 const mathGame = require('./games/mathGame.js');
 const wordGame = require('./games/wordGame.js');
 const hangMan = require('./games/hangMan.js');
 const chessGame = require('./games/chessgame.js');
 const blackjackGame = require('./games/blackjackGame.js');
-require('dotenv').config();
 
 const client = new Discord.Client({
     intents: [
@@ -17,34 +19,76 @@ const client = new Discord.Client({
 });
 
 const promotionChoices = new Map();
+const usersFilePath = './users.json';
+let embedMessage = null;
+let personalChannel = null;
+let UserIDs = [];
 
-client.once('ready', () => {
-    let personalChannel = client.channels.cache.get('1093132638899949619');
+client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
-    personalChannel.send('Bot is Online!');
+    personalChannel = client.channels.cache.get('1250757613721878558');
+
+    if (!personalChannel) {
+        console.error('Channel not found!');
+        return;
+    }
     client.user.setActivity('the chance to have sex with groundshock', { type: Discord.ActivityType.Competing });
+
+    if (fs.existsSync('./embedMessageId.txt')) {
+        try {
+            embedMessageId = fs.readFileSync('./embedMessageId.txt', 'utf8');
+            embedMessage = await personalChannel.messages.fetch(embedMessageId);
+        } catch (error) {
+            console.error('Error fetching existing embed message:', error);
+            embedMessage = null;
+        }
+    }
+
+    // Read initial users file and send the embed
+    await readUsersFileAndUpdateEmbed();
+
+    // Watch for changes in the users file
+    fs.watch(usersFilePath, async (eventType, filename) => {
+        if (filename && eventType === 'change') {
+            await readUsersFileAndUpdateEmbed();
+        }
+    });
 });
 
-const UserIDs = [
-    879824223365918771, // flacko
-    1108312992946323476, // dodo
-    599266518517415947, // groundshock
-    805009105855971329, // saecro
-    646715443004047373, // gojo
-    1062092543229181962, // ranger
-    921207090289180703, // saint
-    841947091748257792, // nayan
-    961899489340297266, // kaworii / bug
-    665804779141726221, // wockhardt
-];
+async function readUsersFileAndUpdateEmbed() {
+    fs.readFile(usersFilePath, 'utf8', async (err, data) => {
+        if (err) {
+            console.error('Error reading users file:', err);
+            return;
+        }
 
-let currentGame = null;
+        const users = JSON.parse(data);
+        UserIDs = users.map(user => user.ID);
+
+        const userMentions = users.map(user => `<@${user.ID}>`).join('\n');
+
+        const embed = new Discord.EmbedBuilder()
+            .setColor(0x0099ff)
+            .setTitle('List of users added to autoskull:')
+            .setDescription(userMentions);
+
+        if (!embedMessage) {
+            embedMessage = await personalChannel.send({ embeds: [embed] });
+            // Save the embed message ID for future bot restarts
+            fs.writeFileSync('./embedMessageId.txt', embedMessage.id, 'utf8');
+        } else {
+            embedMessage.edit({ embeds: [embed] });
+        }
+    });
+}
 
 client.on('messageCreate', message => {
-    if (UserIDs.includes(parseFloat(message.author.id))) {
+    if (UserIDs.includes(message.author.id)) {
         message.react('💀').catch(console.error);
     }
 });
+
+let currentGame = null;
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
@@ -126,7 +170,49 @@ client.on('messageCreate', async message => {
         await chessGame.proposeDraw(message);
     } else if (command === '!endmathgame') {
         await mathGame.endMathGame(message);
+    } else if (command === '!skull') {
+        const mentionedUser = message.mentions.users.first();
+        if (!mentionedUser) {
+            return message.channel.send('Please mention a user to add to the autoskull list.');
+        }
+
+        // Read the current users from the JSON file
+        fs.readFile(usersFilePath, 'utf8', (err, data) => {
+            if (err) {
+                console.error('Error reading users file:', err);
+                return;
+            }
+
+            let users = [];
+            if (data) {
+                users = JSON.parse(data);
+            }
+
+            // Check if the user is already in the list
+            const userExists = users.some(user => user.ID === mentionedUser.id);
+            if (userExists) {
+                return message.channel.send('User is already in the autoskull list.');
+            }
+
+            // Add the new user to the list
+            users.push({
+                user: mentionedUser.username,
+                ID: mentionedUser.id
+            });
+
+            // Write the updated list back to the JSON file
+            fs.writeFile(usersFilePath, JSON.stringify(users, null, 2), 'utf8', async (err) => {
+                if (err) {
+                    console.error('Error writing users file:', err);
+                    return;
+                }
+
+                await readUsersFileAndUpdateEmbed(); // Update the embed with the new user list
+                message.channel.send(`Added ${mentionedUser.username} to the autoskull list.`);
+            });
+        });
     }
+
 });
 
 client.on('messageCreate', async message => {
