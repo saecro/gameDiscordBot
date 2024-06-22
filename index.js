@@ -1,7 +1,15 @@
-const fs = require('fs')
-const Discord = require('discord.js');
+const fs = require('fs');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 require('dotenv').config();
+const axios = require('axios');
+const { MongoClient } = require('mongodb');
 
+// Initialize MongoDB client
+const mongo = new MongoClient(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+const database = mongo.db('discordGameBot');
+const autoSkull = database.collection('AutoSkullList');
+
+// Game modules
 const quizGame = require('./games/quiz.js');
 const mathGame = require('./games/mathGame.js');
 const wordGame = require('./games/wordGame.js');
@@ -9,82 +17,108 @@ const hangMan = require('./games/hangMan.js');
 const chessGame = require('./games/chessgame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 
-const client = new Discord.Client({
+// Initialize Discord client
+const client = new Client({
     intents: [
-        Discord.GatewayIntentBits.Guilds,
-        Discord.GatewayIntentBits.GuildMessages,
-        Discord.GatewayIntentBits.MessageContent,
-        Discord.GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildMembers
     ]
 });
 
+const apiKey = process.env.FORTNITE_API_KEY;
+
 const promotionChoices = new Map();
-const usersFilePath = './users.json';
-let embedMessage = null;
 let personalChannel = null;
-let UserIDs = [];
+
+// Fetch initial list of Discord IDs from the database
+let discordIDs = [];
+
+async function fetchInitialDiscordIDs() {
+    await mongo.connect();
+    const documents = await autoSkull.find({}).toArray();
+    discordIDs = documents.map(doc => doc.DiscordID);
+}
+
+async function addSkullUser(userId, username) {
+    try {
+        await autoSkull.updateOne(
+            { DiscordID: userId },
+            { $set: { DiscordID: userId, username: username } },
+            { upsert: true }
+        );
+        console.log(`User ${username} (${userId}) added to AutoSkullList.`);
+        discordIDs.push(userId); // Add to the local cache
+    } catch (error) {
+        console.error(`Error adding user ${userId} to AutoSkullList:`, error);
+    }
+}
+
+async function removeSkullUser(userId) {
+    try {
+        await autoSkull.deleteOne({ DiscordID: userId });
+        console.log(`User ${userId} removed from AutoSkullList.`);
+        discordIDs = discordIDs.filter(id => id !== userId); // Remove from the local cache
+    } catch (error) {
+        console.error(`Error removing user ${userId} from AutoSkullList:`, error);
+    }
+}
+
+async function getSkullUsers() {
+    try {
+        const documents = await autoSkull.find({}).toArray();
+        return documents.map(doc => `<@${doc.DiscordID}>`).join('\n');
+    } catch (error) {
+        console.error('Error fetching skull users:', error);
+    }
+}
+
+async function syncRolesWithDatabase(guild) {
+    const roleId = '1250075018256453692'; // Replace with your specific role ID
+    const members = await guild.members.fetch();
+
+    for (const [memberId, member] of members) {
+        const hasRole = member.roles.cache.has(roleId);
+        if (hasRole && !discordIDs.includes(memberId)) {
+            await addSkullUser(memberId, member.user.username);
+        } else if (!hasRole && discordIDs.includes(memberId)) {
+            await removeSkullUser(memberId);
+        }
+    }
+}
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
-    personalChannel = client.channels.cache.get('1250757613721878558');
-
-    if (!personalChannel) {
-        console.error('Channel not found!');
-        return;
-    }
-    client.user.setActivity('the chance to have sex with groundshock', { type: Discord.ActivityType.Competing });
-
-    if (fs.existsSync('./embedMessageId.txt')) {
-        try {
-            embedMessageId = fs.readFileSync('./embedMessageId.txt', 'utf8');
-            embedMessage = await personalChannel.messages.fetch(embedMessageId);
-        } catch (error) {
-            console.error('Error fetching existing embed message:', error);
-            embedMessage = null;
+    await fetchInitialDiscordIDs();
+    client.user.setActivity('In Rape games', { type: 'COMPETING' });
+    const guild = client.guilds.cache.get('1046895591076155502'); // Replace with your guild ID
+    if (guild) {
+        await syncRolesWithDatabase(guild);
+        const role = guild.roles.cache.get('1250075018256453692'); // Replace with your specific role ID
+        if (role) {
+            const members = await guild.members.fetch();
+            const membersWithRole = members.filter(member => member.roles.cache.has(role.id));
+            for (const member of membersWithRole.values()) {
+                await addSkullUser(member.id, member.user.username);
+            }
         }
     }
-
-    // Read initial users file and send the embed
-    await readUsersFileAndUpdateEmbed();
-
-    // Watch for changes in the users file
-    fs.watch(usersFilePath, async (eventType, filename) => {
-        if (filename && eventType === 'change') {
-            await readUsersFileAndUpdateEmbed();
-        }
-    });
 });
 
-async function readUsersFileAndUpdateEmbed() {
-    fs.readFile(usersFilePath, 'utf8', async (err, data) => {
-        if (err) {
-            console.error('Error reading users file:', err);
-            return;
-        }
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    const roleId = 'your-role-id'; // Replace with your specific role ID
 
-        const users = JSON.parse(data);
-        UserIDs = users.map(user => user.ID);
+    const hadRole = oldMember.roles.cache.has(roleId);
+    const hasRole = newMember.roles.cache.has(roleId);
 
-        const userMentions = users.map(user => `<@${user.ID}>`).join('\n');
-
-        const embed = new Discord.EmbedBuilder()
-            .setColor(0x0099ff)
-            .setTitle('List of users added to autoskull:')
-            .setDescription(userMentions);
-
-        if (!embedMessage) {
-            embedMessage = await personalChannel.send({ embeds: [embed] });
-            // Save the embed message ID for future bot restarts
-            fs.writeFileSync('./embedMessageId.txt', embedMessage.id, 'utf8');
-        } else {
-            embedMessage.edit({ embeds: [embed] });
-        }
-    });
-}
-
-client.on('messageCreate', message => {
-    if (UserIDs.includes(message.author.id)) {
-        message.react('💀').catch(console.error);
+    if (!hadRole && hasRole) {
+        // Role was added
+        await addSkullUser(newMember.id, newMember.user.username);
+    } else if (hadRole && !hasRole) {
+        // Role was removed
+        await removeSkullUser(newMember.id);
     }
 });
 
@@ -92,6 +126,11 @@ let currentGame = null;
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // React with a skull emoji if the author is in the AutoSkullList
+    if (discordIDs.includes(message.author.id)) {
+        message.react('💀').catch(console.error);
+    }
 
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
@@ -170,47 +209,47 @@ client.on('messageCreate', async message => {
         await chessGame.proposeDraw(message);
     } else if (command === '!endmathgame') {
         await mathGame.endMathGame(message);
+    } else if (command === '!stats') {
+        const username = message.content.split(' ')[1];
+        try {
+            const response = await axios.get(`https://fortnite-api.com/v2/stats/br/v2?name=${username}`, {
+                headers: {
+                    'Authorization': apiKey
+                }
+            });
+            const stats = response.data.data;
+            console.log(stats.stats.all);
+            const embed = new EmbedBuilder()
+                .setTitle(`Fortnite Stats for ${username}`)
+                .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
+                .addFields(
+                    { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
+                    { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
+                    { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
+                    { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
+                    { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
+                )
+                .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
+                .setColor('#00ff00');
+
+            message.channel.send({ embeds: [embed] });
+        } catch (error) {
+            console.log(error);
+            message.channel.send('Error fetching stats. Make sure the username is correct.');
+        }
     } else if (command === '!skull') {
         const mentionedUser = message.mentions.users.first();
         if (!mentionedUser) {
-            return message.channel.send('Please mention a user to add to the autoskull list.');
+            const embed = new EmbedBuilder()
+                .setColor('#0099ff')
+                .setTitle('Current Skull Users')
+                .setDescription(await getSkullUsers());
+
+            return message.channel.send({ embeds: [embed] });
         }
 
-        // Read the current users from the JSON file
-        fs.readFile(usersFilePath, 'utf8', (err, data) => {
-            if (err) {
-                console.error('Error reading users file:', err);
-                return;
-            }
-
-            let users = [];
-            if (data) {
-                users = JSON.parse(data);
-            }
-
-            // Check if the user is already in the list
-            const userExists = users.some(user => user.ID === mentionedUser.id);
-            if (userExists) {
-                return message.channel.send('User is already in the autoskull list.');
-            }
-
-            // Add the new user to the list
-            users.push({
-                user: mentionedUser.username,
-                ID: mentionedUser.id
-            });
-
-            // Write the updated list back to the JSON file
-            fs.writeFile(usersFilePath, JSON.stringify(users, null, 2), 'utf8', async (err) => {
-                if (err) {
-                    console.error('Error writing users file:', err);
-                    return;
-                }
-
-                await readUsersFileAndUpdateEmbed(); // Update the embed with the new user list
-                message.channel.send(`Added ${mentionedUser.username} to the autoskull list.`);
-            });
-        });
+        await addSkullUser(mentionedUser.id);
+        return message.channel.send(`Added user ${mentionedUser.tag} to autoskull list.`);
     }
 
 });
@@ -306,7 +345,7 @@ class GameSession {
 }
 
 async function startJoinPhase(message) {
-    const embed = new Discord.EmbedBuilder()
+    const embed = new EmbedBuilder()
         .setColor('#0099ff')
         .setTitle('React to Participate')
         .setDescription('React with ✅ to participate in the game! You have 5 seconds.');
@@ -337,7 +376,7 @@ async function startJoinPhase(message) {
 }
 
 async function sendTemporaryEmbed(channel, description, user) {
-    const embed = new Discord.EmbedBuilder()
+    const embed = new EmbedBuilder()
         .setColor('#00ff00')
         .setDescription(description);
 
