@@ -3,11 +3,16 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
+const OpenAI = require('openai');
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+});
 
 // Initialize MongoDB client
 const mongo = new MongoClient(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
 const database = mongo.db('discordGameBot');
 const autoSkull = database.collection('AutoSkullList');
+const aiMessages = database.collection('AIMessages');
 
 // Game modules
 const quizGame = require('./games/quiz.js');
@@ -89,14 +94,29 @@ async function syncRolesWithDatabase(guild) {
     }
 }
 
+async function saveMessage(userId, role, content) {
+    await aiMessages.insertOne({
+        userId,
+        role,
+        content,
+        createdAt: new Date(),
+    });
+}
+
+async function getChatHistory(userId) {
+    const history = await aiMessages.find({ userId }).sort({ createdAt: 1 }).toArray();
+    return history.map(message => ({ role: message.role, content: message.content }));
+}
+
+
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     await fetchInitialDiscordIDs();
     client.user.setActivity('In Rape games', { type: 'COMPETING' });
-    const guild = client.guilds.cache.get('1046895591076155502'); // Replace with your guild ID
+    const guild = client.guilds.cache.get('1046895591076155502');
     if (guild) {
         await syncRolesWithDatabase(guild);
-        const role = guild.roles.cache.get('1250075018256453692'); // Replace with your specific role ID
+        const role = guild.roles.cache.get('1250075018256453692');
         if (role) {
             const members = await guild.members.fetch();
             const membersWithRole = members.filter(member => member.roles.cache.has(role.id));
@@ -108,7 +128,7 @@ client.once('ready', async () => {
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    const roleId = 'your-role-id'; // Replace with your specific role ID
+    const roleId = '1250075018256453692';
 
     const hadRole = oldMember.roles.cache.has(roleId);
     const hasRole = newMember.roles.cache.has(roleId);
@@ -252,6 +272,44 @@ client.on('messageCreate', async message => {
         return message.channel.send(`Added user ${mentionedUser.tag} to autoskull list.`);
     }
 
+    // Chatbot functionality
+    if (command === '!gpt') {
+        const prompt = args.slice(1).join(' ');
+        const userId = message.author.id;
+
+        if (prompt) {
+            await saveMessage(userId, 'user', prompt);
+
+            const chatHistory = await getChatHistory(userId);
+
+            if (chatHistory.length === 0) {
+                chatHistory.push({
+                    role: 'system',
+                    content: 'You are a chatbot acting as a supportive and loving girlfriend. Always be affectionate, considerate, and attentive to the user’s feelings and thoughts.',
+                });
+            }
+
+            chatHistory.push({ role: 'user', content: prompt });
+
+            try {
+                const chatCompletion = await openai.chat.completions.create({
+                    messages: chatHistory,
+                    model: 'gpt-3.5-turbo', // or 'gpt-4' if using GPT-4
+                });
+
+                const aiResponse = chatCompletion.choices[0].message.content;
+
+                await saveMessage(userId, 'assistant', aiResponse);
+
+                message.channel.send(aiResponse);
+            } catch (error) {
+                console.error('Error generating response:', error);
+                message.channel.send('Sorry, I had trouble generating a response.');
+            }
+        } else {
+            message.channel.send('Please provide a prompt after the command.');
+        }
+    }
 });
 
 client.on('messageCreate', async message => {
