@@ -93,19 +93,36 @@ async function syncRolesWithDatabase(guild) {
         }
     }
 }
+async function chatWithAssistant(userId, userMessage) {
+    const conversation_history = await getChatHistory(userId);
+    if (conversation_history.length === 0) {
+        conversation_history.push({
+            role: 'system',
+            content: 'You are a loving and supportive girlfriend. Always be affectionate, considerate, and attentive to the user’s feelings and thoughts. You remember details about the user and always respond with warmth and positivity.',
+        });
+    }
+    conversation_history.push({ role: "user", content: userMessage });
 
-async function saveMessage(userId, role, content) {
-    await aiMessages.insertOne({
-        userId,
-        role,
-        content,
-        createdAt: new Date(),
+    const response = await openai.ChatCompletion.create({
+        model: "gpt-3.5-turbo",
+        messages: conversation_history,
     });
+
+    const assistantMessage = response.choices[0].message.content;
+
+    await saveMessage(userId, 'user', userMessage);
+    await saveMessage(userId, 'assistant', assistantMessage);
+
+    return assistantMessage;
 }
 
 async function getChatHistory(userId) {
-    const history = await aiMessages.find({ userId }).sort({ createdAt: 1 }).toArray();
-    return history.map(message => ({ role: message.role, content: message.content }));
+    const chatHistory = await aiMessages.find({ userId }).sort({ createdAt: 1 }).toArray();
+    return chatHistory.map(message => ({ role: message.role, content: message.content }));
+}
+
+async function saveMessage(userId, role, content) {
+    await aiMessages.insertOne({ userId, role, content, createdAt: new Date() });
 }
 
 
@@ -279,32 +296,13 @@ client.on('messageCreate', async message => {
         const userId = message.author.id;
 
         if (prompt) {
-            await saveMessage(userId, 'user', prompt);
+            message.channel.startTyping();
 
-            let chatHistory = await getChatHistory(userId);
+            const response = await chatWithAssistant(message.author.id, message.content);
 
-                chatHistory.push({
-                    role: 'system',
-                    content: `You are a loving and supportive girlfriend. Always be affectionate, considerate, and attentive to the user's feelings and thoughts. You remember details about the user and always respond with warmth and positivity.`,
-                });
+            message.channel.stopTyping();
 
-            chatHistory.push({ role: 'user', content: prompt });
-
-            try {
-                const chatCompletion = await openai.chat.completions.create({
-                    model: 'gpt-3.5-turbo', // or 'gpt-4' if using GPT-4
-                    messages: chatHistory,
-                });
-
-                const aiResponse = chatCompletion.choices[0].message.content;
-
-                await saveMessage(userId, 'assistant', aiResponse);
-
-                message.channel.send(aiResponse);
-            } catch (error) {
-                console.error('Error generating response:', error);
-                message.channel.send('Sorry, I had trouble generating a response.');
-            }
+            message.channel.send(response);
         } else {
             message.channel.send('Please provide a prompt after the command.');
         }
