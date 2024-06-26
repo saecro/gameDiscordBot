@@ -33,7 +33,7 @@ const client = new Client({
     ]
 });
 
-const apiKey = process.env.FORTNITE_API_KEY;
+//const apiKey = process.env.FORTNITE_API_KEY;
 
 const promotionChoices = new Map();
 let personalChannel = null;
@@ -107,6 +107,7 @@ async function getChatHistory(userId) {
     const history = await aiMessages.find({ userId }).sort({ createdAt: 1 }).toArray();
     return history.map(message => ({ role: message.role, content: message.content }));
 }
+
 
 
 client.once('ready', async () => {
@@ -230,33 +231,33 @@ client.on('messageCreate', async message => {
     } else if (command === '!endmathgame') {
         await mathGame.endMathGame(message);
     } else if (command === '!stats') {
-        const username = message.content.split(' ')[1];
-        try {
-            const response = await axios.get(`https://fortnite-api.com/v2/stats/br/v2?name=${username}`, {
-                headers: {
-                    'Authorization': apiKey
-                }
-            });
-            const stats = response.data.data;
-            console.log(stats.stats.all);
-            const embed = new EmbedBuilder()
-                .setTitle(`Fortnite Stats for ${username}`)
-                .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
-                .addFields(
-                    { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
-                    { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
-                    { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
-                    { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
-                    { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
-                )
-                .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
-                .setColor('#00ff00');
+        // const username = message.content.split(' ')[1];
+        // try {
+        //     const response = await axios.get(`https://fortnite-api.com/v2/stats/br/v2?name=${username}`, {
+        //         headers: {
+        //             'Authorization': apiKey
+        //         }
+        //     });
+        //     const stats = response.data.data;
+        //     console.log(stats.stats.all);
+        //     const embed = new EmbedBuilder()
+        //         .setTitle(`Fortnite Stats for ${username}`)
+        //         .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
+        //         .addFields(
+        //             { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
+        //             { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
+        //             { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
+        //             { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
+        //             { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
+        //         )
+        //         .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
+        //         .setColor('#00ff00');
 
-            message.channel.send({ embeds: [embed] });
-        } catch (error) {
-            console.log(error);
-            message.channel.send('Error fetching stats. Make sure the username is correct.');
-        }
+        //     message.channel.send({ embeds: [embed] });
+        // } catch (error) {
+        //     console.log(error);
+        //     message.channel.send('Error fetching stats. Make sure the username is correct.');
+        // }
     } else if (command === '!skull') {
         const mentionedUser = message.mentions.users.first();
         if (!mentionedUser) {
@@ -280,21 +281,19 @@ client.on('messageCreate', async message => {
         if (prompt) {
             await saveMessage(userId, 'user', prompt);
 
-            const chatHistory = await getChatHistory(userId);
+            let chatHistory = await getChatHistory(userId);
 
-            if (chatHistory.length === 0) {
                 chatHistory.push({
                     role: 'system',
-                    content: 'You are a chatbot acting as a supportive and loving girlfriend. Always be affectionate, considerate, and attentive to the user’s feelings and thoughts.',
+                    content: `You are a loving and supportive girlfriend. Always be affectionate, considerate, and attentive to the user's feelings and thoughts. You remember details about the user and always respond with warmth and positivity.`,
                 });
-            }
 
             chatHistory.push({ role: 'user', content: prompt });
 
             try {
                 const chatCompletion = await openai.chat.completions.create({
-                    messages: chatHistory,
                     model: 'gpt-3.5-turbo', // or 'gpt-4' if using GPT-4
+                    messages: chatHistory,
                 });
 
                 const aiResponse = chatCompletion.choices[0].message.content;

@@ -101,9 +101,6 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
             }
         }
     }
-
-    const buffer = canvas.toBuffer('image/png');
-    fs.writeFileSync('./chessboard.png', buffer);
 }
 
 module.exports = generateChessboardImage;
