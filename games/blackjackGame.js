@@ -5,7 +5,7 @@ const suits = ['♠️', '♥️', '♣️', '♦️'];
 const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
 const mongoUri = process.env.MONGO_URI;
-const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+const client = new MongoClient(mongoUri);
 let db, currencyCollection;
 
 async function connectToDb() {
@@ -61,16 +61,6 @@ function calculateHandValue(hand) {
         aces--;
     }
     return value;
-}
-
-
-async function getOrCreateUserCurrency(userId) {
-    let user = await currencyCollection.findOne({ discordID: userId });
-    if (!user) {
-        user = { discordID: userId, money: 100 };
-        await currencyCollection.insertOne(user);
-    }
-    return user.money;
 }
 
 async function updateUserCurrency(userId, newAmount) {

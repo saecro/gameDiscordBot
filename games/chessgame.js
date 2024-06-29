@@ -1,8 +1,15 @@
 const { Chess } = require('chess.js');
+const fs = require('fs');
 const generateChessboardImage = require('./chessboard.js');
+const { MongoClient } = require('mongodb');
+require('dotenv').config();
+
+// Initialize MongoDB client
+const mongo = new MongoClient(process.env.MONGO_URI);
+const database = mongo.db('discordGameBot');
+const chessGames = database.collection('chessGames');
 
 const activeGames = new Map();
-const playerGames = new Map();
 const drawOffers = new Map();
 const promotionChoices = new Map();
 
@@ -14,23 +21,33 @@ async function startChessGame(message, participants) {
     console.log(`Starting chess game with gameKey: ${gameKey}`);
     console.log(`Author ID: ${authorId}, Opponent ID: ${opponentId}`);
 
-    if (playerGames.has(authorId) || playerGames.has(opponentId)) {
-        console.log(`One or both players are already in a game. Author in game: ${playerGames.has(authorId)}, Opponent in game: ${playerGames.has(opponentId)}`);
+    if (await isPlayerInGame(authorId) || await isPlayerInGame(opponentId)) {
+        console.log(`One or both players are already in a game. Author in game: ${await isPlayerInGame(authorId)}, Opponent in game: ${await isPlayerInGame(opponentId)}`);
         message.channel.send('One or both players are already in a game.');
         return;
     }
 
     const chess = new Chess();
     activeGames.set(gameKey, chess);
-    playerGames.set(authorId, gameKey); // Change: Set the player ID as the key, and the gameKey as the value
-    playerGames.set(opponentId, gameKey); // Change: Set the opponent ID as the key, and the gameKey as the value
+    await chessGames.insertOne({ playerId: authorId, gameKey });
+    await chessGames.insertOne({ playerId: opponentId, gameKey });
 
     console.log(`Active games: ${JSON.stringify([...activeGames.keys()])}`);
-    console.log(`Player games: ${JSON.stringify([...playerGames.entries()])}`);
+    console.log(`Player games: ${JSON.stringify(await getPlayerGames())}`);
 
     message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
     await sendChessboardImage(message.channel, chess.board());
 }
+
+async function isPlayerInGame(playerId) {
+    return !!(await chessGames.findOne({ playerId }));
+}
+
+async function getPlayerGameKey(playerId) {
+    const game = await chessGames.findOne({ playerId });
+    return game ? game.gameKey : null;
+}
+
 async function sendChessboardImage(channel, board, lastMove = null, flip = false) {
     try {
         await generateChessboardImage(board, lastMove, flip);
@@ -42,7 +59,7 @@ async function sendChessboardImage(channel, board, lastMove = null, flip = false
 
 async function makeMove(message, move, promotion = 'q') {
     const playerId = message.author.id;
-    let gameKey = playerGames.get(playerId);
+    let gameKey = await getPlayerGameKey(playerId);
 
     console.log(`makeMove called with gameKey: ${gameKey}`);
     console.log(`Player ID: ${playerId}`);
@@ -109,10 +126,10 @@ async function makeMove(message, move, promotion = 'q') {
 
         if (chess.isCheckmate()) {
             message.channel.send(`Checkmate! <@${currentPlayerId}> wins.`);
-            endChessGameByGameKey(gameKey);
+            await endChessGameByGameKey(gameKey);
         } else if (chess.isDraw()) {
             message.channel.send('Draw!');
-            endChessGameByGameKey(gameKey);
+            await endChessGameByGameKey(gameKey);
         } else {
             const opponentId = gameKey.split('-').find(id => id !== currentPlayerId);
             let messageText = `It's now <@${opponentId}>'s turn.`;
@@ -148,33 +165,34 @@ async function makeMove(message, move, promotion = 'q') {
     }
 }
 
-
-function endChessGameByGameKey(gameKey) {
+async function endChessGameByGameKey(gameKey) {
     console.log(`Ending chess game with gameKey: ${gameKey}`);
     activeGames.delete(gameKey);
     drawOffers.delete(gameKey);
     promotionChoices.delete(gameKey);
+
+    await chessGames.deleteMany({ gameKey });
 }
 
-function endChessGame(message, participants) {
+async function endChessGame(message, participants) {
     const authorId = message.author.id;
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
 
     console.log(`Ending chess game with participants: ${authorId}, ${opponentId}`);
 
-    endChessGameByGameKey(gameKey);
+    await endChessGameByGameKey(gameKey);
     const swappedGameKey = gameKey.split('-').reverse().join('-');
-    endChessGameByGameKey(swappedGameKey);
+    await endChessGameByGameKey(swappedGameKey);
 
-    console.log(`Player games map after ending game: ${JSON.stringify([...playerGames])}`);
+    console.log(`Player games map after ending game: ${JSON.stringify(await getPlayerGames())}`);
 
     message.channel.send('The chess game has been ended.');
 }
 
 async function resignGame(message) {
     const playerId = message.author.id;
-    const gameKey = playerGames.get(playerId);
+    const gameKey = await getPlayerGameKey(playerId);
 
     console.log(`Resigning game for playerId: ${playerId}, gameKey: ${gameKey}`);
 
@@ -185,12 +203,12 @@ async function resignGame(message) {
 
     const opponentId = gameKey.split('-').find(id => id !== playerId);
     message.channel.send(`<@${playerId}> has resigned. <@${opponentId}> wins.`);
-    endChessGameByGameKey(gameKey);
+    await endChessGameByGameKey(gameKey);
 }
 
 async function proposeDraw(message) {
     const playerId = message.author.id;
-    const gameKey = playerGames.get(playerId);
+    const gameKey = await getPlayerGameKey(playerId);
 
     console.log(`Proposing draw for playerId: ${playerId}, gameKey: ${gameKey}`);
 
@@ -202,15 +220,22 @@ async function proposeDraw(message) {
     const opponentId = gameKey.split('-').find(id => id !== playerId);
     if (drawOffers.has(gameKey) && drawOffers.get(gameKey) === opponentId) {
         message.channel.send(`Draw accepted by <@${opponentId}>. The game is a draw.`);
-        endChessGameByGameKey(gameKey);
+        await endChessGameByGameKey(gameKey);
     } else {
         drawOffers.set(gameKey, playerId);
         message.channel.send(`<@${playerId}> has offered a draw. <@${opponentId}>, type !draw to accept.`);
     }
 }
 
+async function getPlayerGames() {
+    const games = await chessGames.find().toArray();
+    return games.reduce((map, game) => {
+        map.set(game.playerId, game.gameKey);
+        return map;
+    }, new Map());
+}
+
 module.exports = {
-    playerGames,
     startChessGame,
     makeMove,
     endChessGame,
