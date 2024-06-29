@@ -66,6 +66,14 @@ function calculateHandValue(hand) {
 async function updateUserCurrency(userId, newAmount) {
     await currencyCollection.updateOne({ discordID: userId }, { $set: { money: newAmount } });
 }
+async function getOrCreateUserCurrency(userId) {
+    let user = await currencyCollection.findOne({ discordID: userId });
+    if (!user) {
+        user = { discordID: userId, money: 100 };
+        await currencyCollection.insertOne(user);
+    }
+    return user.money;
+}
 
 async function startBlackjackGame(message, participants) {
     const players = Array.from(participants.keys());

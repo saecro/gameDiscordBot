@@ -114,22 +114,6 @@ async function chatWithAssistant(userId, userMessage) {
     return assistantMessage;
 }
 
-async function saveUserImage(discordID, base64Image) {
-    try {
-        await mongo.connect();
-        await userImagesCollection.updateOne(
-            { discordID },
-            { $set: { discordID, image: base64Image } },
-            { upsert: true }
-        );
-        console.log(`Base64 image saved for Discord user ID: ${discordID}`);
-    } catch (error) {
-        console.error('Error saving base64 image:', error);
-    } finally {
-        await mongo.close();
-    }
-}
-
 async function drawWithAssistant(userMessage) {
     try {
         const response = await openai.images.generate({
