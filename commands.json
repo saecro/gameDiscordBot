@@ -1,0 +1,141 @@
+{
+    "adminCommands": [
+        {
+            "name": "timelog",
+            "title": "Help - !timelog",
+            "description": "The `!timelog` command sets the log channel for timeout events.",
+            "usage": "`!timelog #channel`",
+            "example": "`!timelog #general`\nSets the #general channel as the log channel."
+        },
+        {
+            "name": "skull",
+            "title": "Help - !skull",
+            "description": "The `!skull` command adds or removes a role ID for skull reactions.",
+            "usage": "`!skull <role_id>`",
+            "example": "`!skull 123456789012345678`\nAdd or remove the role ID 123456789012345678 for skull reactions."
+        },
+        {
+            "name": "gptrole",
+            "title": "Help - !gptrole",
+            "description": "The `!gptrole` command assigns the 'gpt' role to a mentioned user.",
+            "usage": "`!gptrole @user`",
+            "example": "`!gptrole @username`\nAssigns the 'gpt' role to the mentioned user."
+        }
+    ],
+    "gameCommands": [
+        {
+            "name": "startquiz/endquiz",
+            "title": "Help - !startquiz/endquiz",
+            "description": "The `!startquiz/endquiz` command initiates a quiz game where participants answer questions to score points.",
+            "usage": "`!startquiz/endquiz`",
+            "example": "`!startquiz/endquiz`\nYou will see a prompt to join the game. React with ✅ to join and start answering the questions."
+        },
+        {
+            "name": "startmathgame/endmathgame",
+            "title": "Help - !startmathgame/endmathgame",
+            "description": "The `!startmathgame/endmathgame` command initiates a math game where participants solve math problems to score points.",
+            "usage": "`!startmathgame/endmathgame`",
+            "example": "`!startmathgame/endmathgame`\nYou will see a prompt to join the game. React with ✅ to join and start answering the questions."
+        },
+        {
+            "name": "starthangman/endhangman",
+            "title": "Help - !starthangman/endhangman",
+            "description": "The `!starthangman/endhangman` command initiates a hangman game where participants guess letters to form a word.",
+            "usage": "`!starthangman/endhangman`",
+            "example": "`!starthangman/endhangman`\nYou will see a prompt to join the game. React with ✅ to join and start guessing the letters."
+        },
+        {
+            "name": "startchessgame/endchessgame",
+            "title": "Help - !startchessgame/endchessgame",
+            "description": "The `!startchessgame/endchessgame` command initiates a chess game with another user.",
+            "usage": "`!startchessgame/endchessgame @user`",
+            "example": "`!startchessgame/endchessgame @user`\nMention a user to start a chess game with them and begin making moves."
+        },
+        {
+            "name": "startblackjack/endblackjack",
+            "title": "Help - !startblackjack/endblackjack",
+            "description": "The `!startblackjack/endblackjack` command initiates a blackjack game.",
+            "usage": "`!startblackjack/endblackjack`",
+            "example": "`!startblackjack/endblackjack`\nYou will see a prompt to join the game. React with ✅ to join and start playing."
+        },
+        {
+            "name": "slots",
+            "title": "Help - !slots",
+            "description": "The `!slots` command initiates a slot machine game where participants bet money.",
+            "usage": "`!slots <bet>`",
+            "example": "`!slots 100`\nPlace a bet of 100 and spin the slot machine."
+        },
+        {
+            "name": "move",
+            "title": "Help - !move",
+            "description": "The `!move` command makes a move in the current chess game.",
+            "usage": "`!move <from> <to>`",
+            "example": "`!move e2 e4`\nMake a move from e2 to e4."
+        },
+        {
+            "name": "resign",
+            "title": "Help - !resign",
+            "description": "The `!resign` command resigns from the current chess game.",
+            "usage": "`!resign`",
+            "example": "`!resign`\nResign from the current chess game."
+        },
+        {
+            "name": "draw",
+            "title": "Help - !draw",
+            "description": "The `!draw` command proposes a draw in the current chess game.",
+            "usage": "`!draw`",
+            "example": "`!draw`\nPropose a draw in the current chess game."
+        },
+        {
+            "name": "promote",
+            "title": "Help - !promote",
+            "description": "The `!promote` command promotes a pawn in the current chess game.",
+            "usage": "`!promote <choice>`",
+            "example": "`!promote Q`\nPromote a pawn to a Queen."
+        },
+        {
+            "name": "startgreentea/endgreentea",
+            "title": "Help - !startgreentea/endgreentea",
+            "description": "The `!startgreentea/endgreentea` command starts/ends a green tea game.",
+            "usage": "`!startgreentea/endgreentea`",
+            "example": "`!startgreentea/endgreentea`\nstarts/ends a green tea game."
+        },
+        {
+            "name": "startblacktea/endblacktea",
+            "title": "Help - !startblacktea/endblacktea",
+            "description": "The `!startblacktea/endblacktea` command starts/ends a black tea game.",
+            "usage": "`!startblacktea/endblacktea`",
+            "example": "`!startblacktea/endblacktea`\nstarts/ends a black tea game."
+        }
+    ],
+    "generalCommands": [
+        {
+            "name": "balance",
+            "title": "Help - !balance",
+            "description": "The `!balance` command shows your current balance in the bot.",
+            "usage": "`!balance`",
+            "example": "`!balance`\nThe bot will display your current balance."
+        },
+        {
+            "name": "stats",
+            "title": "Help - !stats",
+            "description": "The `!stats` command fetches Fortnite stats for a given username.",
+            "usage": "`!stats <username>`",
+            "example": "`!stats Ninja`\nFetch and display Fortnite stats for the username Ninja."
+        },
+        {
+            "name": "gpt",
+            "title": "Help - !gpt",
+            "description": "The `!gpt` command interacts with the chatbot using the provided prompt.",
+            "usage": "`!gpt <prompt>`",
+            "example": "`!gpt What is the weather like today?`\nInteracts with the chatbot to get the weather information."
+        },
+        {
+            "name": "gptdraw",
+            "title": "Help - !gptdraw",
+            "description": "The `!gptdraw` command generates an image based on the provided prompt.",
+            "usage": "`!gptdraw <prompt>`",
+            "example": "`!gptdraw A futuristic cityscape`\nGenerates an image of a futuristic cityscape."
+        }
+    ]
+}

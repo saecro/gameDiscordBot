@@ -62,7 +62,7 @@ async function startQuiz(message, participants) {
             }, 1000);
 
             const filter = response => {
-                return response.author.id === userId && response.content.toUpperCase() === question.answer;
+                return response.author.id === userId && ['A', 'B', 'C', 'D'].includes(response.content.toUpperCase());
             };
 
             try {
@@ -94,7 +94,19 @@ async function startQuiz(message, participants) {
                     participants.delete(userId);
                 }
             } else {
-                await message.channel.send(`<@${userId}> answered correctly!`);
+                const answer = collected.first().content.toUpperCase();
+                if (answer !== question.answer) {
+                    const remainingLives = lives.get(userId) - 1;
+                    lives.set(userId, remainingLives);
+                    await message.channel.send(`<@${userId}> answered incorrectly and lost a life. Correct answer was ${question.answer}. Remaining lives: ${remainingLives}`);
+
+                    if (remainingLives <= 0) {
+                        await message.channel.send(`<@${userId}> is out of the game!`);
+                        participants.delete(userId);
+                    }
+                } else {
+                    await message.channel.send(`<@${userId}> answered correctly!`);
+                }
             }
 
             if (participants.size === 1) {

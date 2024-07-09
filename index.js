@@ -1,13 +1,18 @@
-
-const { Client, PermissionsBitField, GatewayIntentBits, AuditLogEvent, EmbedBuilder } = require('discord.js');
+const { Client, PermissionsBitField, GatewayIntentBits, AuditLogEvent, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
+const { handleHelpCommand, readCommandsFile } = require('./helpgame.js');
+
+const cooldowns = {
+    gpt: new Map(),
+    gptdraw: new Map()
+};
+
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
-const helpCommand = require('./helpgame.js')
 
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
@@ -56,6 +61,10 @@ async function fetchRoleIDs() {
     await mongo.connect();
     const documents = await roleCollection.find({}).toArray();
     roleIDs = documents.map(doc => doc.roleId);
+}
+
+function isAdmin(member) {
+    return member.permissions.has(PermissionsBitField.Flags.Administrator);
 }
 
 async function addRoleID(roleId) {
@@ -131,9 +140,16 @@ async function drawWithAssistant(userMessage) {
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
-        return imageData
+        return imageData;
     } catch (error) {
         console.error('Error generating or fetching image:', error);
+
+        // Check if it's a content policy violation
+        if (error.response && error.response.data && error.response.data.error && error.response.data.error.code === 'content_policy_violation') {
+            throw new Error('This request has been blocked by our content filters.');
+        }
+
+        // For other errors, return null
         return null;
     }
 }
@@ -187,6 +203,9 @@ client.once('ready', async () => {
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    const roleIDs = ['list', 'of', 'role', 'IDs']; // Add your role IDs here
+    const gptRole = newMember.guild.roles.cache.find(role => role.name === 'gpt');
+
     for (const roleId of roleIDs) {
         const hadRole = oldMember.roles.cache.has(roleId);
         const hasRole = newMember.roles.cache.has(roleId);
@@ -197,6 +216,24 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         } else if (hadRole && !hasRole) {
             // Role was removed
             console.log(`User ${newMember.id} was removed from role ${roleId}`);
+        }
+    }
+
+    if (gptRole) {
+        if (!oldMember.roles.cache.has(gptRole.id) && newMember.roles.cache.has(gptRole.id)) {
+            // Check if the role was not added by the bot command
+            const auditLogs = await newMember.guild.fetchAuditLogs({
+                limit: 1,
+                type: AuditLogEvent.MemberRoleUpdate,
+            });
+            const logEntry = auditLogs.entries.first();
+
+            if (logEntry && logEntry.target.id === newMember.id && logEntry.changes.some(change => change.key === '$add' && change.new.find(role => role.id === gptRole.id))) {
+                const executor = logEntry.executor;
+                if (executor.id !== '1242601206627434708') {
+                    await newMember.roles.remove(gptRole);
+                }
+            }
         }
     }
 
@@ -263,8 +300,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             console.error(`Error removing timeout log for guild ${newMember.guild.id}:`, error);
         }
     }
-});
-
+})
 
 let currentGame = null;
 
@@ -276,26 +312,6 @@ client.on('messageCreate', async message => {
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
 
-
-    if (command === '!timelog') {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.reply('You do not have permission to use this command.');
-        }
-
-        const channel = message.mentions.channels.first();
-        if (channel) {
-            await logChannels.updateOne(
-                { guildId: message.guild.id },
-                { $set: { channelId: channel.id } },
-                { upsert: true }
-            );
-            return message.reply(`Log channel set to ${channel}`);
-        } else {
-            return message.reply('Please mention a valid channel.');
-        }
-    }
-
-    // React with a skull emoji if the author has any of the saved role IDs
     for (const roleId of roleIDs) {
         if (message.member.roles.cache.has(roleId)) {
             message.react('💀').catch(console.error);
@@ -303,260 +319,380 @@ client.on('messageCreate', async message => {
         }
     }
 
-    if (command === '!exitgame') {
-        if (currentGame) {
-            currentGame.endGame();
-            currentGame = null;
-        } else {
-            message.channel.send('No game is currently running.');
-        }
-        return;
-    }
+    if (command.startsWith('!')) {
+        if (command === '!exitgame') {
+            if (currentGame) {
+                currentGame.endGame();
+                currentGame = null;
+            } else {
+                message.channel.send('No game is currently running.');
+            }
+            return;
+        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame') {
+            message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
+            return;
+        } else if (command === '!help') {
+            const commands = await readCommandsFile();
+            if (!commands) {
+                return message.channel.send('Failed to load commands.');
+            }
 
-    if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame') {
-        message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
-        return;
-    }
-
-    if (command === '!help') {
-        if (args[1]) {
-            const helpCategory = args[1].toLowerCase();
+            const helpCategory = args[1] ? args[1].toLowerCase() : null;
             if (helpCategory === 'admin') {
-                await helpCommand.handleHelpCommand(message, helpCommand.adminCommands);
+                await handleHelpCommand(message, commands.adminCommands);
             } else if (helpCategory === 'games') {
-                await helpCommand.handleHelpCommand(message, helpCommand.gameCommands);
+                await handleHelpCommand(message, commands.gameCommands);
             } else if (helpCategory === 'general') {
-                await helpCommand.handleHelpCommand(message, helpCommand.generalCommands);
+                await handleHelpCommand(message, commands.generalCommands);
+            } else {
+                const sections = [
+                    { name: 'Admin Commands', commands: commands.adminCommands },
+                    { name: 'Game Commands', commands: commands.gameCommands },
+                    { name: 'Normal Commands', commands: commands.generalCommands }
+                ];
+
+                function createSectionEmbed(section, index) {
+                    return new EmbedBuilder()
+                        .setTitle(`Help - ${section.name}`)
+                        .setColor('#00ff00')
+                        .setDescription('Here are the available commands:')
+                        .addFields(section.commands.map(command => (
+                            { name: command.title, value: `${command.description}` }
+                        )))
+                        .setTimestamp()
+                        .setFooter({ text: `Section ${index + 1} of ${sections.length}` });
+                }
+
+                async function handleHelpSections(message) {
+                    let currentSectionIndex = 0;
+
+                    const helpEmbed = createSectionEmbed(sections[currentSectionIndex], currentSectionIndex);
+                    const row = new ActionRowBuilder()
+                        .addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('prevSection')
+                                .setLabel('←')
+                                .setStyle(ButtonStyle.Primary)
+                                .setDisabled(currentSectionIndex === 0),
+                            new ButtonBuilder()
+                                .setCustomId('nextSection')
+                                .setLabel('→')
+                                .setStyle(ButtonStyle.Primary)
+                                .setDisabled(currentSectionIndex === sections.length - 1)
+                        );
+
+                    const helpMessage = await message.channel.send({ embeds: [helpEmbed], components: [row] });
+
+                    const filter = i => i.user.id === message.author.id;
+                    const collector = helpMessage.createMessageComponentCollector({ filter, time: 60000 });
+
+                    collector.on('collect', async i => {
+                        if (i.customId === 'prevSection' && currentSectionIndex > 0) {
+                            currentSectionIndex--;
+                        } else if (i.customId === 'nextSection' && currentSectionIndex < sections.length - 1) {
+                            currentSectionIndex++;
+                        }
+
+                        await i.update({
+                            embeds: [createSectionEmbed(sections[currentSectionIndex], currentSectionIndex)],
+                            components: [
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        new ButtonBuilder()
+                                            .setCustomId('prevSection')
+                                            .setLabel('←')
+                                            .setStyle(ButtonStyle.Primary)
+                                            .setDisabled(currentSectionIndex === 0),
+                                        new ButtonBuilder()
+                                            .setCustomId('nextSection')
+                                            .setLabel('→')
+                                            .setStyle(ButtonStyle.Primary)
+                                            .setDisabled(currentSectionIndex === sections.length - 1)
+                                    )
+                            ]
+                        });
+                    });
+
+                    collector.on('end', collected => {
+                        helpMessage.edit({ components: [] });
+                    });
+                }
+
+                await handleHelpSections(message);
             }
-        } else {
-            const embed = new EmbedBuilder()
-                .setTitle('Help - List of Commands')
-                .setColor('#00ff00')
-                .setDescription('Here are the available commands, categorized by type:')
-                .addFields(
-                    { name: 'Admin Commands', value: '\u200B' }, // \u200B adds an invisible space for better formatting
-                    { name: '!timelog #channel', value: 'Sets the log channel for timeout events.', inline: true },
-                    { name: '!skull <role_id>', value: 'Adds the specified role ID to the list for skull reactions.', inline: true },
-
-                    { name: '\u200B', value: '\u200B' }, // Empty field for spacing
-
-                    { name: 'Game Commands', value: '\u200B' },
-                    { name: '!startquiz', value: 'Starts a quiz game.', inline: true },
-                    { name: '!startmathgame', value: 'Starts a math game.', inline: true },
-                    { name: '!starthangman', value: 'Starts a hangman game.', inline: true },
-                    { name: '!startchessgame @user', value: 'Starts a chess game with the mentioned user.', inline: true },
-                    { name: '!startblackjack', value: 'Starts a blackjack game.', inline: true },
-                    { name: '!move <from> <to>', value: 'Makes a move in the current chess game.', inline: true },
-                    { name: '!resign', value: 'Resigns from the current chess game.', inline: true },
-                    { name: '!draw', value: 'Proposes a draw in the current chess game.', inline: true },
-                    { name: '!promote <choice>', value: 'Promotes a pawn in the current chess game. Choices: Q, R, B, N.', inline: true },
-                    { name: '!exitgame', value: 'Ends the current game.', inline: true },
-                    { name: '!endmathgame', value: 'Ends the current math game.', inline: true },
-
-                    { name: '\u200B', value: '\u200B' }, // Empty field for spacing
-
-                    { name: 'Normal Commands', value: '\u200B' },
-                    { name: '!help', value: 'Displays this help message.', inline: true },
-                    { name: '!help admin', value: 'Displays help for admin commands.', inline: true },
-                    { name: '!help games', value: 'Displays help for game commands.', inline: true },
-                    { name: '!help general', value: 'Displays help for general commands.', inline: true },
-                    { name: '!stats <username>', value: 'Fetches Fortnite stats for the given username.', inline: true },
-                    { name: '!gpt <prompt>', value: 'Interacts with the chatbot using the provided prompt.', inline: true },
-                    { name: '!gptdraw <prompt>', value: 'Generates an image based on the provided prompt.', inline: true }
-                )
-                .setTimestamp()
-                .setFooter({ text: 'Use these commands responsibly!' });
-
-            message.channel.send({ embeds: [embed] });
-        }
-    } else if (command === '!startquiz') {
-        currentGame = new GameSession('quiz', message);
-        await currentGame.start();
-    } else if (command === '!startmathgame') {
-        currentGame = new GameSession('mathgame', message);
-        await currentGame.start();
-    } else if (command === '!startgreentea') {
-        currentGame = new GameSession('greentea', message);
-        await currentGame.start();
-    } else if (command === '!startblacktea') {
-        currentGame = new GameSession('blacktea', message);
-        await currentGame.start();
-    } else if (command === '!starthangman') {
-        currentGame = new GameSession('hangman', message);
-        await currentGame.start();
-    } else if (command === '!startchessgame') {
-        const mentionedUser = message.mentions.users.first();
-        if (!mentionedUser) {
-            return message.channel.send('Please mention a user to start a chess game with.');
-        }
-
-        if (mentionedUser.bot) {
-            return message.channel.send('You cannot play chess with a bot.');
-        }
-
-        if (mentionedUser.id === message.author.id) {
-            return message.channel.send('You cannot play chess with yourself.');
-        }
-
-        if (playerGames.has(message.author.id) || playerGames.has(mentionedUser.id)) {
-            return message.channel.send('One or both players are already in a game.');
-        }
-
-        const participants = new Map();
-        participants.set(message.author.id, message.author.username);
-        participants.set(mentionedUser.id, mentionedUser.username);
-
-        await chessGame.startChessGame(message, participants);
-    } else if (command === '!startblackjack') {
-        currentGame = new GameSession('blackjack', message);
-        await currentGame.start();
-    } else if (command === '!slots') {
-        const bet = args[1]
-        if (!isNaN(bet)) {
-            await slotMachineGame.slotMachineGame(message, bet);
-        } else {
-            message.channel.send('Please enter a valid bet amount. `!slots 100`');
-        }
-    } else if (command === '!balance') {
-        await getBalance(message);
-    } else if (command === '!move') {
-        const from = args[1];
-        const to = args[2];
-        if (!(from.length !== 2 || to.length !== 2)) {
-            if (!from || !to) {
-                return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
+        } else if (command === '!startquiz') {
+            currentGame = new GameSession('quiz', message);
+            await currentGame.start();
+        } else if (command === '!startmathgame') {
+            currentGame = new GameSession('mathgame', message);
+            await currentGame.start();
+        } else if (command === '!startgreentea') {
+            currentGame = new GameSession('greentea', message);
+            await currentGame.start();
+        } else if (command === '!startblacktea') {
+            currentGame = new GameSession('blacktea', message);
+            await currentGame.start();
+        } else if (command === '!starthangman') {
+            currentGame = new GameSession('hangman', message);
+            await currentGame.start();
+        } else if (command === '!startchessgame') {
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return message.channel.send('Please mention a user to start a chess game with.');
             }
 
+            if (mentionedUser.bot) {
+                return message.channel.send('You cannot play chess with a bot.');
+            }
+
+            if (mentionedUser.id === message.author.id) {
+                return message.channel.send('You cannot play chess with yourself.');
+            }
+
+            if (playerGames.has(message.author.id) || playerGames.has(mentionedUser.id)) {
+                return message.channel.send('One or both players are already in a game.');
+            }
+
+            const participants = new Map();
+            participants.set(message.author.id, message.author.username);
+            participants.set(mentionedUser.id, mentionedUser.username);
+
+            await chessGame.startChessGame(message, participants);
+        } else if (command === '!startblackjack') {
+            currentGame = new GameSession('blackjack', message);
+            await currentGame.start();
+        } else if (command === '!slots') {
+            const bet = args[1]
+            if (!isNaN(bet)) {
+                await slotMachineGame.slotMachineGame(message, bet);
+            } else {
+                message.channel.send('Please enter a valid bet amount. `!slots 100`');
+            }
+        } else if (command === '!balance') {
+            await getBalance(message);
+        } else if (command === '!move') {
+            const from = args[1];
+            const to = args[2];
+            if (!(from.length !== 2 || to.length !== 2)) {
+                if (!from || !to) {
+                    return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
+                }
+
+                const playerGames = await getPlayerGames(); // Fetch player games from the database
+                const gameKey = playerGames.get(message.author.id);
+
+                console.log(`!move command with gameKey: ${gameKey}`);
+                console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
+
+                if (gameKey) {
+                    await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+                } else {
+                    message.channel.send('No chess game in progress.');
+                }
+            } else {
+                message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
+            }
+        } else if (command === '!resign') {
+            await chessGame.resignGame(message);
+        } else if (command === '!draw') {
+            await chessGame.proposeDraw(message);
+        } else if (command === '!promote') {
             const playerGames = await getPlayerGames(); // Fetch player games from the database
             const gameKey = playerGames.get(message.author.id);
 
-            console.log(`!move command with gameKey: ${gameKey}`);
-            console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
+            console.log(`!promote command with gameKey: ${gameKey}`);
 
-            if (gameKey) {
-                await chessGame.makeMove(message, `${from}-${to}`, gameKey);
-            } else {
-                message.channel.send('No chess game in progress.');
-            }
-        } else {
-            message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
-        }
-    } else if (command === '!resign') {
-        await chessGame.resignGame(message);
-    } else if (command === '!draw') {
-        await chessGame.proposeDraw(message);
-    } else if (command === '!promote') {
-        const playerGames = await getPlayerGames(); // Fetch player games from the database
-        const gameKey = playerGames.get(message.author.id);
-
-        console.log(`!promote command with gameKey: ${gameKey}`);
-
-        if (gameKey && promotionChoices.has(gameKey)) {
-            const choice = args[1].toLowerCase();
-            if (!['q', 'r', 'b', 'n'].includes(choice)) {
-                message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
-            } else {
-                promotionChoices.set(gameKey, { ...promotionChoices.get(gameKey), choice });
-                await chessGame.makeMove(message, `${promotionChoices.get(gameKey).from}-${promotionChoices.get(gameKey).to}`, gameKey, choice);
-            }
-        } else {
-            message.channel.send('No pawn to promote or invalid game.');
-        }
-    } else if (command === '!endmathgame') {
-        await mathGame.endMathGame(message);
-    } else if (command === '!stats') {
-        const username = message.content.split(' ')[1];
-        try {
-            const response = await axios.get(`https://fortnite-api.com/v2/stats/br/v2?name=${username}`, {
-                headers: {
-                    'Authorization': apiKey
+            if (gameKey && promotionChoices.has(gameKey)) {
+                const choice = args[1].toLowerCase();
+                if (!['q', 'r', 'b', 'n'].includes(choice)) {
+                    message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
+                } else {
+                    promotionChoices.set(gameKey, { ...promotionChoices.get(gameKey), choice });
+                    await chessGame.makeMove(message, `${promotionChoices.get(gameKey).from}-${promotionChoices.get(gameKey).to}`, gameKey, choice);
                 }
-            });
-            const stats = response.data.data;
-            console.log(stats.stats.all);
-            const embed = new EmbedBuilder()
-                .setTitle(`Fortnite Stats for ${username}`)
-                .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
-                .addFields(
-                    { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
-                    { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
-                    { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
-                    { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
-                    { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
-                )
-                .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
-                .setColor('#00ff00');
-
-            message.channel.send({ embeds: [embed] });
-        } catch (error) {
-            console.log(error);
-            message.channel.send('Error fetching stats. Make sure the username is correct.');
-        }
-    } else if (command === '!skull') {
-        // Check if the user has admin permissions
-        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.channel.send('You do not have permission to use this command.');
-        }
-
-        let roleId = args[1];
-
-        // Check if roleId is a mention and extract the ID
-        const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
-        if (roleMentionMatch) {
-            roleId = roleMentionMatch[1];
-        }
-
-        // Validate roleId
-        if (!/^\d+$/.test(roleId)) {
-            return message.channel.send('Please provide a valid role ID.');
-        }
-
-        // Check if the role ID already exists in the list
-        if (roleIDs.includes(roleId)) {
-            // Remove the role ID if it exists
-            await removeRoleID(roleId);
-            return message.channel.send(`Removed role ID ${roleId} from the list.`);
-        } else {
-            // Add the role ID to the database if it doesn't exist
-            await addRoleID(roleId);
-            return message.channel.send(`Added role ID ${roleId} to the list.`);
-        }
-    }
-    else if (command === '!gpt') {
-        const prompt = args.slice(1).join(' ');
-
-        if (prompt) {
-
-            message.channel.sendTyping();
-
-            const response = await chatWithAssistant(message.author.id, message.content);
-            message.channel.send(response);
-        } else {
-            message.channel.send('Please provide a prompt after the command.');
-        }
-    } else if (command === '!gptdraw') {
-        const prompt = args.slice(1).join(' ');
-
-        if (prompt) {
-            try {
-                message.channel.sendTyping();
-
-                const base64Image = await drawWithAssistant(prompt);
-
-                // Send the image back to the user
-                await message.channel.send({
-                    files: [{
-                        attachment: Buffer.from(base64Image, 'base64'),
-                        name: 'drawn_image.png'
-                    }]
-                });
-            } catch (error) {
-                console.error('Error handling !gptdraw command:', error);
-                message.reply('Failed to process your request.');
+            } else {
+                message.channel.send('No pawn to promote or invalid game.');
             }
-        } else {
-            message.reply('Please provide a prompt after the command.');
+        } else if (command === '!endmathgame') {
+            await mathGame.endMathGame(message);
+        } else if (command === '!stats') {
+            const username = message.content.split(' ')[1];
+            try {
+                const response = await axios.get(`https://fortnite-api.com/v2/stats/br/v2?name=${username}`, {
+                    headers: {
+                        'Authorization': apiKey
+                    }
+                });
+                const stats = response.data.data;
+                console.log(stats.stats.all);
+                const embed = new EmbedBuilder()
+                    .setTitle(`Fortnite Stats for ${username}`)
+                    .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
+                    .addFields(
+                        { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
+                        { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
+                        { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
+                        { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
+                        { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
+                    )
+                    .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
+                    .setColor('#00ff00');
+
+                message.channel.send({ embeds: [embed] });
+            } catch (error) {
+                console.log(error);
+                message.channel.send('Error fetching stats. Make sure the username is correct.');
+            }
+        } else if (command === '!gpt') {
+            const userId = message.author.id;
+            const now = Date.now();
+            const cooldownAmount = 60 * 1000; // 1 minute
+
+            if (cooldowns.gpt.has(userId)) {
+                const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
+                if (now < expirationTime && userId !== '805009105855971329') {
+                    const timeLeft = (expirationTime - now) / 1000;
+                    return message.reply(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
+                }
+            }
+
+            cooldowns.gpt.set(userId, now);
+            setTimeout(() => cooldowns.gpt.delete(userId), cooldownAmount);
+
+            const prompt = args.slice(1).join(' ');
+            if (prompt) {
+                message.channel.sendTyping();
+                const response = await chatWithAssistant(userId, prompt);
+                message.channel.send(response);
+            } else {
+                message.channel.send('Please provide a prompt after the command.');
+            }
+        } else if (command === '!gptdraw') {
+            const userId = message.author.id;
+            const now = Date.now();
+            const cooldownAmount = 60 * 1000; // 10 minutes
+
+            if (cooldowns.gptdraw.has(userId)) {
+                const expirationTime = cooldowns.gptdraw.get(userId) + cooldownAmount;
+                if (now < expirationTime) {
+                    const timeLeft = (expirationTime - now) / 1000;
+                    return message.reply(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
+                }
+            }
+            if (userId !== '805009105855971329') {
+                cooldowns.gptdraw.set(userId, now);
+                setTimeout(() => cooldowns.gptdraw.delete(userId), cooldownAmount);
+            }
+            const prompt = args.slice(1).join(' ');
+            if (prompt) {
+                try {
+                    message.channel.sendTyping();
+                    const base64Image = await drawWithAssistant(prompt);
+                    if (base64Image) {
+                        await message.channel.send({
+                            files: [{
+                                attachment: Buffer.from(base64Image, 'base64'),
+                                name: 'drawn_image.png'
+                            }]
+                        });
+                    } else {
+                        message.reply('Failed to generate image.');
+                    }
+                } catch (error) {
+                    console.error('Error handling !gptdraw command:', error);
+                    if (error.message === 'This request has been blocked by our content filters.') {
+                        message.reply(error.message);
+                    } else {
+                        message.reply('Failed to process your request.');
+                    }
+                }
+            } else {
+                message.reply('Please provide a prompt after the command.');
+            }
+        } else if (message.content.startsWith('!gptrole')) {
+            const userId = message.author.id;
+
+            if (userId === '805009105855971329') {
+                const mentionedUser = message.mentions.users.first();
+                if (!mentionedUser) {
+                    return message.reply('Please mention a user to assign the role to.');
+                }
+
+                const guild = message.guild;
+                let role = guild.roles.cache.find(role => role.name === "gpt");
+
+                if (!role) {
+                    role = await guild.roles.create({
+                        name: 'gpt',
+                    });
+                }
+
+                const member = guild.members.cache.get(mentionedUser.id);
+                if (member) {
+                    await member.roles.add(role);
+                    message.reply(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
+
+                    // Mark the user that the role was assigned by the bot
+                    await member.roles.add(role, 'Role assigned by bot command');
+                } else {
+                    message.reply('User not found in this guild.');
+                }
+                return;
+            } else {
+                return message.reply('Only saecro has permission to use this command.');
+            }
+        } else if (command === '!timelog') {
+            if (isAdmin(message.member)) {
+
+                const channel = message.mentions.channels.first();
+                if (channel) {
+                    await logChannels.updateOne(
+                        { guildId: message.guild.id },
+                        { $set: { channelId: channel.id } },
+                        { upsert: true }
+                    );
+                    return message.reply(`Log channel set to ${channel}`);
+                } else {
+                    return message.reply('Please mention a valid channel.');
+                }
+            } else {
+                return message.reply('You do not have permission to use this command.');
+            }
+
+        } else if (command === '!skull') {
+            if (isAdmin(message.member)) {
+                if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return message.channel.send('You do not have permission to use this command.');
+                }
+
+                let roleId = args[1];
+
+                // Check if roleId is a mention and extract the ID
+                const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
+                if (roleMentionMatch) {
+                    roleId = roleMentionMatch[1];
+                }
+
+                // Validate roleId
+                if (!/^\d+$/.test(roleId)) {
+                    return message.channel.send('Please provide a valid role ID.');
+                }
+
+                // Check if the role ID already exists in the list
+                if (roleIDs.includes(roleId)) {
+                    // Remove the role ID if it exists
+                    await removeRoleID(roleId);
+                    return message.channel.send(`Removed role ID ${roleId} from the list.`);
+                } else {
+                    // Add the role ID to the database if it doesn't exist
+                    await addRoleID(roleId);
+                    return message.channel.send(`Added role ID ${roleId} to the list.`);
+                }
+            } else {
+                return message.reply('You do not have permission to use this command.');
+            }
         }
+
     }
 });
 
