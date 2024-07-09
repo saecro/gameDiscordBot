@@ -1,17 +1,20 @@
-const fs = require('fs');
-const path = require('path');
+const words = require('an-array-of-english-words');
 const Discord = require('discord.js');
 
 let gameState = {};
-
-// Load questions from the JSON file
-const questions = JSON.parse(fs.readFileSync(path.join(__dirname, 'questions.json'), 'utf8'));
 
 const checkRunning = (channelId) => {
     return gameState[channelId]?.running;
 };
 
-async function startQuiz(message, participants) {
+const grab3letters = (WordsToFilter) => {
+    WordsToFilter = WordsToFilter.filter(word => word.length >= 3);
+    WordsToFilter = WordsToFilter[Math.floor(Math.random() * WordsToFilter.length)];
+    const startIdx = Math.floor(Math.random() * (WordsToFilter.length - 2));
+    return WordsToFilter.substring(startIdx, startIdx + 3);
+};
+
+async function startBlackTea(message, participants) {
     let lives = new Map();
     participants.forEach((username, userId) => {
         lives.set(userId, 2);
@@ -28,13 +31,14 @@ async function startQuiz(message, participants) {
             if (!checkRunning(message.channel.id)) return;
 
             let collected = new Discord.Collection();
-            const question = questions[Math.floor(Math.random() * questions.length)];
-            currentQuestion = question;
+            const letters = grab3letters(words);
+
+            console.log(`Generated letters: ${letters}`);
 
             const embed = new Discord.EmbedBuilder()
                 .setColor('#0099ff')
-                .setTitle('Quiz Time!')
-                .setDescription(`${question.question}\nA) ${question.A}\nB) ${question.B}\nC) ${question.C}\nD) ${question.D}`);
+                .setTitle('BlackTea Game')
+                .setDescription(`Type a word containing the letters: **${letters}**`);
 
             const gameMessage = await message.channel.send({ content: `<@${userId}>`, embeds: [embed] });
 
@@ -62,7 +66,7 @@ async function startQuiz(message, participants) {
             }, 1000);
 
             const filter = response => {
-                return response.author.id === userId && response.content.toUpperCase() === question.answer;
+                return response.author.id === userId && response.content.includes(letters);
             };
 
             try {
@@ -93,8 +97,6 @@ async function startQuiz(message, participants) {
                     await message.channel.send(`<@${userId}> is out of the game!`);
                     participants.delete(userId);
                 }
-            } else {
-                await message.channel.send(`<@${userId}> answered correctly!`);
             }
 
             if (participants.size === 1) {
@@ -107,15 +109,15 @@ async function startQuiz(message, participants) {
     }
 }
 
-async function endQuiz(message) {
+async function endBlackTea(message) {
     if (gameState[message.channel.id]) {
         gameState[message.channel.id].running = false;
         delete gameState[message.channel.id];
-        await message.channel.send('You have exited the game.');
-        console.log(`Quiz game in channel ${message.channel.id} has been ended.`);
+        await message.channel.send('The blacktea game has been ended.');
+        console.log(`Blacktea game in channel ${message.channel.id} has been ended.`);
     } else {
-        await message.channel.send('No quiz game is currently running.');
+        await message.channel.send('No blacktea game is currently running.');
     }
 }
 
-module.exports = { startQuiz, endQuiz };
+module.exports = { startBlackTea, endBlackTea };

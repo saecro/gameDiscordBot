@@ -27,7 +27,7 @@ async function startChessGame(message, participants) {
         return;
     }
 
-    const chess = new Chess();
+    const chess = new Chess();    
     activeGames.set(gameKey, chess);
     await chessGames.insertOne({ playerId: authorId, gameKey });
     await chessGames.insertOne({ playerId: opponentId, gameKey });

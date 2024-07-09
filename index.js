@@ -7,24 +7,26 @@ const OpenAI = require('openai');
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
+const helpCommand = require('./helpgame.js')
 
-// Initialize MongoDB client
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
+const currencyCollection = database.collection('currency');
+const logChannels = database.collection('LogChannels');
 const roleCollection = database.collection('RoleIDs');
+const chessGames = database.collection('chessGames');
 const aiMessages = database.collection('AIMessages');
 const timeoutLogs = database.collection('Timeouts');
-const logChannels = database.collection('LogChannels');
-const chessGames = database.collection('chessGames');
-const currencyCollection = database.collection('currency');
+
 // Game modules
-const quizGame = require('./games/quiz.js');
-const mathGame = require('./games/mathGame.js');
-const wordGame = require('./games/wordGame.js');
-const hangMan = require('./games/hangMan.js');
-const chessGame = require('./games/chessgame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const slotMachineGame = require('./games/slotMachine.js');
+const chessGame = require('./games/chessgame.js');
+const mathGame = require('./games/mathGame.js');
+const greenTea = require('./games/greentea.js');
+const blackTea = require('./games/blacktea.js');
+const hangMan = require('./games/hangMan.js');
+const quizGame = require('./games/quiz.js');
 
 // Initialize Discord client
 const client = new Client({
@@ -56,7 +58,6 @@ async function fetchRoleIDs() {
     roleIDs = documents.map(doc => doc.roleId);
 }
 
-
 async function addRoleID(roleId) {
     try {
         await roleCollection.updateOne(
@@ -76,7 +77,10 @@ async function addRoleID(roleId) {
 async function getOrCreateUserCurrency(userId) {
     let user = await currencyCollection.findOne({ discordID: userId });
     if (!user) {
-        user = { discordID: userId, money: 100 };
+        user = {
+            discordID: userId,
+            money: 100
+        };
         await currencyCollection.insertOne(user);
     }
     return user.money;
@@ -93,18 +97,17 @@ async function removeRoleID(roleId) {
 }
 
 async function chatWithAssistant(userId, userMessage) {
-    const conversation_history = await getChatHistory(userId);
-    if (conversation_history.length === 0) {
-        conversation_history.push({
-            role: 'system',
-            content: 'You are a loving and supportive girlfriend. Always be affectionate, considerate, and attentive to the user’s feelings and thoughts. You remember details about the user and always respond with warmth and positivity.',
-        });
-    }
+    let conversation_history = await getChatHistory(userId);
+    conversation_history.push({
+        role: 'system',
+        content: `Hello, I'm here to be your nice and supportive friend. I'm always ready to lend a helping hand whenever you need it. Whether you have questions, need advice, or just want someone to talk to, I'm here for you. You can count on me to be there and provide assistance with anything you need. Let's make this a great experience together!`,
+    });
     conversation_history.push({ role: "user", content: userMessage });
 
     const response = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: "gpt-4o",
         messages: conversation_history,
+        max_tokens: 150
     });
     const assistantMessage = response.choices[0].message.content;
 
@@ -117,7 +120,7 @@ async function chatWithAssistant(userId, userMessage) {
 async function drawWithAssistant(userMessage) {
     try {
         const response = await openai.images.generate({
-            model: "dall-e-2",
+            model: "dall-e-3",
             prompt: userMessage,
             n: 1,
             size: "1024x1024",
@@ -128,7 +131,7 @@ async function drawWithAssistant(userMessage) {
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
-        return  imageData
+        return imageData
     } catch (error) {
         console.error('Error generating or fetching image:', error);
         return null;
@@ -136,7 +139,12 @@ async function drawWithAssistant(userMessage) {
 }
 
 async function getChatHistory(userId) {
-    const chatHistory = await aiMessages.find({ userId }).sort({ createdAt: 1 }).toArray();
+    const chatHistory = await aiMessages.find({ userId })
+        .sort({ createdAt: -1 })  // Sort in descending order to get the latest messages first
+        .limit(7)                 // Limit the results to the last 7 messages
+        .toArray();
+
+    chatHistory.reverse();         // Reverse the array to have the messages in chronological order
     return chatHistory.map(message => ({ role: message.role, content: message.content }));
 }
 
@@ -243,8 +251,20 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                 console.error(`Error fetching audit logs for guild ${newMember.guild.id}:`, error);
             }
         }
+    } else if (oldMember.isCommunicationDisabled() && !newMember.isCommunicationDisabled()) {
+        // Timeout was cleared
+        try {
+            await timeoutLogs.deleteOne({
+                guildId: newMember.guild.id,
+                userId: newMember.id
+            });
+            console.log(`Removed timeout log for user ${newMember.id} in guild ${newMember.guild.id}`);
+        } catch (error) {
+            console.error(`Error removing timeout log for guild ${newMember.guild.id}:`, error);
+        }
     }
 });
+
 
 let currentGame = null;
 
@@ -287,7 +307,6 @@ client.on('messageCreate', async message => {
         if (currentGame) {
             currentGame.endGame();
             currentGame = null;
-            message.channel.send('The current game has been ended.');
         } else {
             message.channel.send('No game is currently running.');
         }
@@ -300,51 +319,67 @@ client.on('messageCreate', async message => {
     }
 
     if (command === '!help') {
-        const embed = new EmbedBuilder()
-            .setTitle('Help - List of Commands')
-            .setColor('#00ff00')
-            .setDescription('Here are the available commands, categorized by type:')
+        if (args[1]) {
+            const helpCategory = args[1].toLowerCase();
+            if (helpCategory === 'admin') {
+                await helpCommand.handleHelpCommand(message, helpCommand.adminCommands);
+            } else if (helpCategory === 'games') {
+                await helpCommand.handleHelpCommand(message, helpCommand.gameCommands);
+            } else if (helpCategory === 'general') {
+                await helpCommand.handleHelpCommand(message, helpCommand.generalCommands);
+            }
+        } else {
+            const embed = new EmbedBuilder()
+                .setTitle('Help - List of Commands')
+                .setColor('#00ff00')
+                .setDescription('Here are the available commands, categorized by type:')
+                .addFields(
+                    { name: 'Admin Commands', value: '\u200B' }, // \u200B adds an invisible space for better formatting
+                    { name: '!timelog #channel', value: 'Sets the log channel for timeout events.', inline: true },
+                    { name: '!skull <role_id>', value: 'Adds the specified role ID to the list for skull reactions.', inline: true },
 
-            .addFields(
-                { name: 'Admin Commands', value: '\u200B' }, // \u200B adds an invisible space for better formatting
-                { name: '!timelog #channel', value: 'Sets the log channel for timeout events.', inline: true },
-                { name: '!skull <role_id>', value: 'Adds the specified role ID to the list for skull reactions.', inline: true },
+                    { name: '\u200B', value: '\u200B' }, // Empty field for spacing
 
-                { name: '\u200B', value: '\u200B' }, // Empty field for spacing
+                    { name: 'Game Commands', value: '\u200B' },
+                    { name: '!startquiz', value: 'Starts a quiz game.', inline: true },
+                    { name: '!startmathgame', value: 'Starts a math game.', inline: true },
+                    { name: '!starthangman', value: 'Starts a hangman game.', inline: true },
+                    { name: '!startchessgame @user', value: 'Starts a chess game with the mentioned user.', inline: true },
+                    { name: '!startblackjack', value: 'Starts a blackjack game.', inline: true },
+                    { name: '!move <from> <to>', value: 'Makes a move in the current chess game.', inline: true },
+                    { name: '!resign', value: 'Resigns from the current chess game.', inline: true },
+                    { name: '!draw', value: 'Proposes a draw in the current chess game.', inline: true },
+                    { name: '!promote <choice>', value: 'Promotes a pawn in the current chess game. Choices: Q, R, B, N.', inline: true },
+                    { name: '!exitgame', value: 'Ends the current game.', inline: true },
+                    { name: '!endmathgame', value: 'Ends the current math game.', inline: true },
 
-                { name: 'Game Commands', value: '\u200B' },
-                { name: '!startquiz', value: 'Starts a quiz game.', inline: true },
-                { name: '!startwordgame', value: 'Starts a word game.', inline: true },
-                { name: '!startmathgame', value: 'Starts a math game.', inline: true },
-                { name: '!starthangman', value: 'Starts a hangman game.', inline: true },
-                { name: '!startchessgame @user', value: 'Starts a chess game with the mentioned user.', inline: true },
-                { name: '!startblackjack', value: 'Starts a blackjack game.', inline: true },
-                { name: '!move <from> <to>', value: 'Makes a move in the current chess game.', inline: true },
-                { name: '!resign', value: 'Resigns from the current chess game.', inline: true },
-                { name: '!draw', value: 'Proposes a draw in the current chess game.', inline: true },
-                { name: '!promote <choice>', value: 'Promotes a pawn in the current chess game. Choices: Q, R, B, N.', inline: true },
-                { name: '!exitgame', value: 'Ends the current game.', inline: true },
-                { name: '!endmathgame', value: 'Ends the current math game.', inline: true },
+                    { name: '\u200B', value: '\u200B' }, // Empty field for spacing
 
-                { name: '\u200B', value: '\u200B' }, // Empty field for spacing
+                    { name: 'Normal Commands', value: '\u200B' },
+                    { name: '!help', value: 'Displays this help message.', inline: true },
+                    { name: '!help admin', value: 'Displays help for admin commands.', inline: true },
+                    { name: '!help games', value: 'Displays help for game commands.', inline: true },
+                    { name: '!help general', value: 'Displays help for general commands.', inline: true },
+                    { name: '!stats <username>', value: 'Fetches Fortnite stats for the given username.', inline: true },
+                    { name: '!gpt <prompt>', value: 'Interacts with the chatbot using the provided prompt.', inline: true },
+                    { name: '!gptdraw <prompt>', value: 'Generates an image based on the provided prompt.', inline: true }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'Use these commands responsibly!' });
 
-                { name: 'Normal Commands', value: '\u200B' },
-                { name: '!help', value: 'Displays this help message.', inline: true },
-                { name: '!stats <username>', value: 'Fetches Fortnite stats for the given username.', inline: true },
-                { name: '!gpt <prompt>', value: 'Interacts with the chatbot using the provided prompt.', inline: true }
-            )
-            .setTimestamp()
-            .setFooter({ text: 'Use these commands responsibly!' });
-
-        message.channel.send({ embeds: [embed] });
+            message.channel.send({ embeds: [embed] });
+        }
     } else if (command === '!startquiz') {
         currentGame = new GameSession('quiz', message);
         await currentGame.start();
-    } else if (command === '!startwordgame') {
-        currentGame = new GameSession('wordgame', message);
-        await currentGame.start();
     } else if (command === '!startmathgame') {
         currentGame = new GameSession('mathgame', message);
+        await currentGame.start();
+    } else if (command === '!startgreentea') {
+        currentGame = new GameSession('greentea', message);
+        await currentGame.start();
+    } else if (command === '!startblacktea') {
+        currentGame = new GameSession('blacktea', message);
         await currentGame.start();
     } else if (command === '!starthangman') {
         currentGame = new GameSession('hangman', message);
@@ -387,20 +422,24 @@ client.on('messageCreate', async message => {
     } else if (command === '!move') {
         const from = args[1];
         const to = args[2];
-        if (!from || !to) {
-            return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
-        }
+        if (!(from.length !== 2 || to.length !== 2)) {
+            if (!from || !to) {
+                return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
+            }
 
-        const playerGames = await getPlayerGames(); // Fetch player games from the database
-        const gameKey = playerGames.get(message.author.id);
+            const playerGames = await getPlayerGames(); // Fetch player games from the database
+            const gameKey = playerGames.get(message.author.id);
 
-        console.log(`!move command with gameKey: ${gameKey}`);
-        console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
+            console.log(`!move command with gameKey: ${gameKey}`);
+            console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
 
-        if (gameKey) {
-            await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+            if (gameKey) {
+                await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+            } else {
+                message.channel.send('No chess game in progress.');
+            }
         } else {
-            message.channel.send('No chess game in progress.');
+            message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
         }
     } else if (command === '!resign') {
         await chessGame.resignGame(message);
@@ -482,7 +521,8 @@ client.on('messageCreate', async message => {
             await addRoleID(roleId);
             return message.channel.send(`Added role ID ${roleId} to the list.`);
         }
-    } else if (command === '!gpt') {
+    }
+    else if (command === '!gpt') {
         const prompt = args.slice(1).join(' ');
 
         if (prompt) {
@@ -543,16 +583,18 @@ class GameSession {
     async startGame() {
         if (this.gameType === 'quiz') {
             await startQuizGame(this.message, this.participants);
-        } else if (this.gameType === 'wordgame') {
-            await startWordGame(this.message, this.participants);
         } else if (this.gameType === 'mathgame') {
             await startMathGame(this.message, this.participants);
+        } else if (this.gameType === 'greentea') {
+            await startGreenTea(this.message, this.participants);
         } else if (this.gameType === 'hangman') {
             await startHangMan(this.message, this.participants);
         } else if (this.gameType === 'chessgame') {
             await startChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
             await startBlackjackGame(this.message, this.participants);
+        } else if (this.gameType === 'blacktea') {
+            await startBlackTea(this.message, this.participants);
         }
     }
 
@@ -572,17 +614,19 @@ class GameSession {
 
     endGame() {
         if (this.gameType === 'quiz') {
-            quizGame.endQuiz();
-        } else if (this.gameType === 'wordgame') {
-            wordGame.endWordGame();
+            quizGame.endQuiz(this.message);
         } else if (this.gameType === 'mathgame') {
             mathGame.endMathGame(this.message);
         } else if (this.gameType === 'hangman') {
-            hangMan.endHangMan();
+            hangMan.endHangMan(this.message);
         } else if (this.gameType === 'chessgame') {
             chessGame.endChessGame(this.message, this.participants);
         } else if (this.gameType === 'blackjack') {
-            blackjackGame.endBlackjackGame();
+            blackjackGame.endBlackjackGame(this.message);
+        } else if (this.gameType === 'greentea') {
+            greenTea.endGreenTea(this.message);
+        } else if (this.gameType === 'blacktea') {
+            blackTea.endBlackTea(this.message);
         }
     }
 }
@@ -591,7 +635,7 @@ async function startJoinPhase(message) {
     const embed = new EmbedBuilder()
         .setColor('#0099ff')
         .setTitle('React to Participate')
-        .setDescription('React with ✅ to participate in the game! You have 5 seconds.');
+        .setDescription('React with ✅ to participate in the game! You have 15 seconds.');
 
     const gameMessage = await message.channel.send({ embeds: [embed] });
     await gameMessage.react('✅');
@@ -602,7 +646,7 @@ async function startJoinPhase(message) {
         return reaction.emoji.name === '✅' && !user.bot;
     };
 
-    const collector = gameMessage.createReactionCollector({ filter, time: 5000 });
+    const collector = gameMessage.createReactionCollector({ filter, time: 3000 });
 
     collector.on('collect', (reaction, user) => {
         if (!participants.has(user.id)) {
@@ -623,7 +667,7 @@ async function sendTemporaryEmbed(channel, description, user) {
         .setColor('#00ff00')
         .setDescription(description);
 
-    const joinMessage = await channel.send({ embeds: [embed], content: `<@${user.id}> has joined the game!` });
+    const joinMessage = await channel.send({ embeds: [embed] });
     setTimeout(() => {
         joinMessage.delete().catch(console.error);
     }, 5000); // Delete after 5 seconds
@@ -635,15 +679,21 @@ async function startQuizGame(message, participants) {
     currentGame = null; // Game ended, reset currentGame
 }
 
-async function startWordGame(message, participants) {
-    message.channel.send(`Starting word game with: ${Array.from(participants.values()).join(', ')}`);
-    await wordGame.startWordGame(message, participants);
-    currentGame = null; // Game ended, reset currentGame
-}
-
 async function startMathGame(message, participants) {
     message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
     await mathGame.startMathGame(message, participants);
+    currentGame = null; // Game ended, reset currentGame
+}
+
+async function startGreenTea(message, participants) {
+    message.channel.send(`Starting greentea with: ${Array.from(participants.values()).join(', ')}`);
+    await greenTea.startGreenTea(message, participants);
+    currentGame = null; // Game ended, reset currentGame
+}
+
+async function startBlackTea(message, participants) {
+    message.channel.send(`Starting blacktea with: ${Array.from(participants.values()).join(', ')}`);
+    await blackTea.startBlackTea(message, participants);
     currentGame = null; // Game ended, reset currentGame
 }
 

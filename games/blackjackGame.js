@@ -15,67 +15,19 @@ async function connectToDb() {
 }
 connectToDb().catch(console.error);
 
-function createDeck() {
-    const deck = [];
-    for (let i = 0; i < suits.length; i++) {
-        for (let j = 0; j < values.length; j++) {
-            deck.push(`${values[j]}${suits[i]}`);
-        }
-    }
-    return shuffle(deck);
-}
+let gameState = {};
+let lastMessageWithButtons = null;
 
-function shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-}
-
-function calculateHandValue(hand) {
-    let value = 0;
-    let aces = 0;
-    let cards = []
-    console.log(hand)
-    hand.forEach(card => {
-        const cardValue = card.charAt(0)
-        cards.push(cardValue)
-    })
-    for (const card of cards) {
-        console.log(card)
-        if (card === 'A') {
-            console.log('we did got it here')
-            aces++;
-            value += 11;
-        } else if (['K', 'Q', 'J'].includes(card)) {
-            console.log('we got it here')
-            value += 10;
-        } else {
-            console.log('we didn\'t here')
-            value += parseInt(card);
-        }
-    }
-    while (value > 21 && aces > 0) {
-        value -= 10;
-        aces--;
-    }
-    return value;
-}
-
-async function updateUserCurrency(userId, newAmount) {
-    await currencyCollection.updateOne({ discordID: userId }, { $set: { money: newAmount } });
-}
-async function getOrCreateUserCurrency(userId) {
-    let user = await currencyCollection.findOne({ discordID: userId });
-    if (!user) {
-        user = { discordID: userId, money: 100 };
-        await currencyCollection.insertOne(user);
-    }
-    return user.money;
-}
+const checkRunning = (channelId) => {
+    return gameState[channelId]?.running;
+};
 
 async function startBlackjackGame(message, participants) {
+    gameState[message.channel.id] = {
+        running: true,
+        participants
+    };
+
     const players = Array.from(participants.keys());
     const playerHands = new Map();
     const playerScores = new Map();
@@ -127,46 +79,17 @@ async function startBlackjackGame(message, participants) {
     await message.channel.send({ embeds: [embed] });
 
     for (const playerId of playerScores.keys()) {
+        if (!checkRunning(message.channel.id)) return; // Check if the game is still running
         const player = await message.client.users.fetch(playerId);
         await playerTurn(message, player, playerHands, playerScores, playerStakes, deck);
     }
 
+    if (!checkRunning(message.channel.id)) return; // Check if the game is still running before dealer's turn
     await dealerTurn(message, dealerHand, deck);
 
+    if (!checkRunning(message.channel.id)) return; // Check if the game is still running before displaying results
     const winners = determineWinners(playerScores, dealerHand);
     await displayResults(message, winners, playerScores, playerStakes);
-}
-
-async function askForStake(message, player, playerScores, playerStakes) {
-    const initialEmbed = new Discord.EmbedBuilder()
-        .setColor('#0099ff')
-        .setTitle(`${player.username}, place your stake`)
-        .setDescription(`You have ${playerScores.get(player.id).money} currency. Please enter your stake (a positive integer).`);
-
-    await message.channel.send({ embeds: [initialEmbed] });
-
-    const filter = (response) => response.author.id === player.id && !isNaN(response.content) && parseInt(response.content) > 0 && parseInt(response.content) <= playerScores.get(player.id).money;
-    const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] }).catch(() => null);
-
-    if (collected) {
-        const stake = parseInt(collected.first().content);
-        playerStakes.set(player.id, stake);
-
-        const confirmEmbed = new Discord.EmbedBuilder()
-            .setColor('#0099ff')
-            .setTitle(`${player.username}, your stake is set`)
-            .setDescription(`You have staked ${stake} currency.`);
-
-        await message.channel.send({ embeds: [confirmEmbed] });
-    } else {
-        const timeoutEmbed = new Discord.EmbedBuilder()
-            .setColor('#ff0000')
-            .setTitle(`${player.username}, you took too long`)
-            .setDescription('You did not enter a valid stake in time.');
-
-        await message.channel.send({ embeds: [timeoutEmbed] });
-        throw new Error(`Player ${player.username} did not enter a valid stake in time.`);
-    }
 }
 
 async function playerTurn(message, player, playerHands, playerScores, playerStakes, deck) {
@@ -174,7 +97,7 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
     let { score, money } = playerScores.get(player.id);
     let isStanding = false;
 
-    while (!isStanding && score < 21) {
+    while (!isStanding && score < 21 && checkRunning(message.channel.id)) {
         const turnEmbed = new Discord.EmbedBuilder()
             .setColor('#0099ff')
             .setTitle(`${player.username}'s Turn`)
@@ -192,12 +115,13 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
                     .setStyle(Discord.ButtonStyle.Secondary)
             );
 
-        const messageWithButtons = await message.channel.send({ embeds: [turnEmbed], components: [row] });
+        lastMessageWithButtons = await message.channel.send({ embeds: [turnEmbed], components: [row] });
 
         const filter = (interaction) => interaction.user.id === player.id && ['hit', 'stand'].includes(interaction.customId);
         try {
-            const collected = await messageWithButtons.awaitMessageComponent({ filter, componentType: Discord.ComponentType.Button, time: 30000 });
+            const collected = await lastMessageWithButtons.awaitMessageComponent({ filter, componentType: Discord.ComponentType.Button, time: 30000 });
 
+            if (!checkRunning(message.channel.id)) return; // Check if the game is still running
             await collected.deferUpdate(); // Acknowledge the interaction immediately to stop the timer
 
             const action = collected.customId;
@@ -234,7 +158,8 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
             }
         } catch (error) {
             // If the interaction fails or times out, disable the buttons and notify the user
-            await messageWithButtons.edit({ components: [] });
+            if (!checkRunning(message.channel.id)) return; // Check if the game is still running
+            await lastMessageWithButtons.edit({ components: [] });
             const timeoutEmbed = new Discord.EmbedBuilder()
                 .setColor('#ff0000')
                 .setTitle(`${player.username}'s Turn`)
@@ -258,7 +183,7 @@ async function dealerTurn(message, dealerHand, deck) {
 
     await message.channel.send({ embeds: [initialDealerEmbed] });
 
-    while (dealerScore < 17) {
+    while (dealerScore < 17 && checkRunning(message.channel.id)) {
         const newCard = deck.pop();
         dealerHand.push(newCard);
         dealerScore = calculateHandValue(dealerHand);
@@ -270,6 +195,8 @@ async function dealerTurn(message, dealerHand, deck) {
 
         await message.channel.send({ embeds: [drawEmbed] });
     }
+
+    if (!checkRunning(message.channel.id)) return; // Check if the game is still running
 
     if (dealerScore > 21) {
         const bustEmbed = new Discord.EmbedBuilder()
@@ -313,6 +240,7 @@ async function displayResults(message, winners, playerScores, playerStakes) {
         resultsEmbed.setDescription(`Congratulations to the winners: ${winnerMentions}!`);
     }
 
+    if (!checkRunning(message.channel.id)) return; // Check if the game is still running
     await message.channel.send({ embeds: [resultsEmbed] });
 
     // Update the currency for the winners
@@ -334,6 +262,34 @@ async function displayResults(message, winners, playerScores, playerStakes) {
     }
 }
 
-module.exports = {
-    startBlackjackGame,
-};
+async function endBlackjackGame(message) {
+    if (gameState[message.channel.id]) {
+        gameState[message.channel.id].running = false;
+
+        // Disable buttons if there's a message with buttons
+        if (lastMessageWithButtons) {
+            const row = new Discord.ActionRowBuilder()
+                .addComponents(
+                    new Discord.ButtonBuilder()
+                        .setCustomId('hit')
+                        .setLabel('Hit')
+                        .setStyle(Discord.ButtonStyle.Primary)
+                        .setDisabled(true),
+                    new Discord.ButtonBuilder()
+                        .setCustomId('stand')
+                        .setLabel('Stand')
+                        .setStyle(Discord.ButtonStyle.Secondary)
+                        .setDisabled(true)
+                );
+            await lastMessageWithButtons.edit({ components: [row] });
+        }
+
+        delete gameState[message.channel.id];
+        await message.channel.send('You have exited the game.');
+        console.log(`Blackjack game in channel ${message.channel.id} has been ended.`);
+    } else {
+        await message.channel.send('No blackjack game is currently running.');
+    }
+}
+
+module.exports = { startBlackjackGame, endBlackjackGame };

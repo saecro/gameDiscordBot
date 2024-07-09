@@ -1,5 +1,5 @@
+const words = require('an-array-of-english-words');
 const Discord = require('discord.js');
-const operations = ["+", "-", "*", "/"];
 const medals = {
     '🥇': 5,
     '🥈': 3,
@@ -12,10 +12,16 @@ const checkRunning = (channelId) => {
     return gameState[channelId]?.running;
 };
 
-async function startMathGame(message, participants) {
+const grab3letters = (WordsToFilter) => {
+    WordsToFilter = WordsToFilter.filter(word => word.length >= 3);
+    WordsToFilter = WordsToFilter[Math.floor(Math.random() * WordsToFilter.length)];
+    const startIdx = Math.floor(Math.random() * (WordsToFilter.length - 2));
+    return WordsToFilter.substring(startIdx, startIdx + 3);
+};
+
+async function startGreenTea(message, participants) {
     let points = new Map();
 
-    // Store game state
     gameState[message.channel.id] = {
         running: true,
         participants,
@@ -25,30 +31,11 @@ async function startMathGame(message, participants) {
     while (checkRunning(message.channel.id)) {
         let collected = new Discord.Collection();
 
-        const num1 = Math.floor(Math.random() * 10) + 1;
-        const num2 = Math.floor(Math.random() * 10) + 1;
-        const operation = operations[Math.floor(Math.random() * operations.length)];
+        const letters = grab3letters(words);
 
-        const question = `${num1} ${operation} ${num2}`;
-        let answer;
-        switch (operation) {
-            case "+":
-                answer = num1 + num2;
-                break;
-            case "-":
-                answer = num1 - num2;
-                break;
-            case "*":
-                answer = num1 * num2;
-                break;
-            case "/":
-                answer = num1 / num2;
-                break;
-        }
+        console.log(`generated letters: ${letters}`);
 
-        console.log(`Generated question: ${question} with answer: ${answer}`);
-
-        await message.channel.send(`Solve: ${question}`);
+        await message.channel.send(`Type a word containing the letters: **${letters}**`);
         let placed = 0;
 
         const answeredUsers = new Set();
@@ -57,26 +44,24 @@ async function startMathGame(message, participants) {
                 return false;
             }
 
-            const isCorrect = !isNaN(response.content) && parseFloat(response.content) === answer;
+            const containsSequence = response.content.includes(letters);
             const isNotBot = response.author.id !== message.client.user.id;
             const hasNotAnswered = !answeredUsers.has(response.author.id);
             const isParticipant = participants.has(response.author.id);
-            console.log(`${response.author.username} answered with ${response.content}`);
-            console.log(`isCorrect: ${isCorrect}, isNotBot: ${isNotBot}, hasNotAnswered: ${hasNotAnswered}, isParticipant: ${isParticipant}`);
 
-            if (isCorrect && isNotBot && hasNotAnswered && isParticipant) {
+            console.log(`${response.author.username} answered with ${response.content}`);
+
+            if (containsSequence && isNotBot && hasNotAnswered && isParticipant) {
                 answeredUsers.add(response.author.id);
 
                 const medal = Object.keys(medals)[placed];
                 placed++;
                 if (medal) {
-                    console.log(`Reacting with ${medal} for ${response.author.username}`);
+                    console.log(`reacting with ${medal} for ${response.author.username}`);
                     await response.react(medal);
-                    console.log(`Reacted with ${medal}`);
                 }
             }
-
-            return isCorrect && isNotBot && hasNotAnswered && isParticipant;
+            return containsSequence && isNotBot && hasNotAnswered && isParticipant;
         };
 
         try {
@@ -92,7 +77,7 @@ async function startMathGame(message, participants) {
             console.log('No messages collected within the time limit.');
         }
 
-        if (!checkRunning(message.channel.id)) return; // Check right before processing collected messages
+        if (!checkRunning(message.channel.id)) return;
 
         let scoresMessage = 'Scores this round:\n';
         if (collected.size > 0) {
@@ -151,15 +136,15 @@ async function displayLeaderboard(message, points) {
     console.log(`Sent leaderboard message: ${leaderboardMessage}`);
 }
 
-async function endMathGame(message) {
+async function endGreenTea(message) {
     if (gameState[message.channel.id]) {
         gameState[message.channel.id].running = false;
         delete gameState[message.channel.id];
         await message.channel.send('You have exited the game.');
-        console.log(`Math game in channel ${message.channel.id} has been ended.`);
+        console.log(`Word game in channel ${message.channel.id} has been ended.`);
     } else {
-        await message.channel.send('No math game is currently running.');
+        await message.channel.send('No word game is currently running.');
     }
 }
 
-module.exports = { startMathGame, endMathGame };
+module.exports = { startGreenTea, endGreenTea };

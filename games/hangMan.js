@@ -1,5 +1,6 @@
 const Discord = require('discord.js');
 let isGameActive = false;
+let gameState = {};
 
 async function getRandomWord() {
     const randomWords = await import('random-words');
@@ -10,12 +11,17 @@ async function getRandomWord() {
 
 async function startHangMan(message, participants) {
     isGameActive = true;
+    gameState[message.channel.id] = {
+        running: true,
+        participants
+    };
+
     let points = new Map();
     participants.forEach((username, id) => {
         points.set(id, 0);
     });
 
-    while (isGameActive) {
+    while (isGameActive && gameState[message.channel.id]?.running) {
         const chosenWord = await getRandomWord();
         const revealedWord = Array(chosenWord.length).fill('-');
         const userLives = new Map();
@@ -30,7 +36,7 @@ async function startHangMan(message, participants) {
 
         await message.channel.send(`A new word has been chosen. Start guessing letters or the entire word!`);
 
-        while (Array.from(userLives.values()).some(lives => lives > 0) && revealedWord.includes('-') && isGameActive) {
+        while (Array.from(userLives.values()).some(lives => lives > 0) && revealedWord.includes('-') && isGameActive && gameState[message.channel.id]?.running) {
             const currentUserId = userIds[currentIndex];
             const currentUserMention = `<@${currentUserId}>`;
 
@@ -45,7 +51,7 @@ async function startHangMan(message, participants) {
 
                 let validGuess = false;
                 let guess;
-                while (!validGuess && isGameActive) {
+                while (!validGuess && isGameActive && gameState[message.channel.id]?.running) {
                     const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] }).catch(() => null);
                     if (!collected) {
                         await message.channel.send(`${currentUserMention} took too long!`);
@@ -133,8 +139,15 @@ async function displayGuessedLetters(message, guessedLetters) {
     await message.channel.send({ embeds: [embed] });
 }
 
-function endHangMan() {
-    isGameActive = false;
+async function endHangMan(message) {
+    if (gameState[message.channel.id]) {
+        gameState[message.channel.id].running = false;
+        delete gameState[message.channel.id];
+        await message.channel.send('You have exited the game.');
+        console.log(`Hangman game in channel ${message.channel.id} has been ended.`);
+    } else {
+        await message.channel.send('No hangman game is currently running.');
+    }
 }
 
 module.exports = { startHangMan, endHangMan };
