@@ -1,9 +1,9 @@
-const { Client, PermissionsBitField, GatewayIntentBits, AuditLogEvent, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const Discord = require('discord.js');
 require('dotenv').config();
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
-const { handleHelpCommand, readCommandsFile } = require('./helpgame.js');
+const helpgame = require('./helpgame.js');
 
 const cooldowns = {
     gpt: new Map(),
@@ -17,6 +17,7 @@ const openai = new OpenAI({
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
 const currencyCollection = database.collection('currency');
+const connect4Games = database.collection('connect4Games');
 const logChannels = database.collection('LogChannels');
 const roleCollection = database.collection('RoleIDs');
 const chessGames = database.collection('chessGames');
@@ -24,8 +25,9 @@ const aiMessages = database.collection('AIMessages');
 const timeoutLogs = database.collection('Timeouts');
 
 // Game modules
+const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
-const slotMachineGame = require('./games/slotMachine.js');
+const connect4Game = require('./games/connect4game.js');
 const chessGame = require('./games/chessgame.js');
 const mathGame = require('./games/mathGame.js');
 const greenTea = require('./games/greentea.js');
@@ -34,13 +36,13 @@ const hangMan = require('./games/hangMan.js');
 const quizGame = require('./games/quiz.js');
 
 // Initialize Discord client
-const client = new Client({
+const client = new Discord.Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.GuildMembers
+        Discord.GatewayIntentBits.Guilds,
+        Discord.GatewayIntentBits.GuildMessages,
+        Discord.GatewayIntentBits.MessageContent,
+        Discord.GatewayIntentBits.GuildMessageReactions,
+        Discord.GatewayIntentBits.GuildMembers
     ]
 });
 
@@ -49,8 +51,11 @@ const apiKey = process.env.FORTNITE_API_KEY;
 const promotionChoices = new Map();
 
 let roleIDs = [];
+
 async function getPlayerGames() {
-    const games = await chessGames.find().toArray();
+    const chessGamesArray = await chessGames.find().toArray();
+    const connect4GamesArray = await connect4Games.find().toArray();
+    const games = chessGamesArray.concat(connect4GamesArray);
     return games.reduce((map, game) => {
         map.set(game.playerId, game.gameKey);
         return map;
@@ -64,7 +69,7 @@ async function fetchRoleIDs() {
 }
 
 function isAdmin(member) {
-    return member.permissions.has(PermissionsBitField.Flags.Administrator);
+    return member.permissions.has(Discord.PermissionsBitField.Flags.Administrator);
 }
 
 async function addRoleID(roleId) {
@@ -93,6 +98,20 @@ async function getOrCreateUserCurrency(userId) {
         await currencyCollection.insertOne(user);
     }
     return user.money;
+}
+
+async function isPlayerInGame(playerId) {
+    const chessGame = await chessGames.findOne({ playerId });
+    if (chessGame) {
+        return true;
+    }
+
+    const connect4Game = await connect4Games.findOne({ playerId });
+    if (connect4Game) {
+        return true;
+    }
+
+    return false;
 }
 
 async function removeRoleID(roleId) {
@@ -176,6 +195,7 @@ client.once('ready', async () => {
 
     // Clear all chess games
     await chessGames.deleteMany({});
+    await connect4Games.deleteMany({});
 
     console.log('Caching all users');
 
@@ -224,7 +244,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             // Check if the role was not added by the bot command
             const auditLogs = await newMember.guild.fetchAuditLogs({
                 limit: 1,
-                type: AuditLogEvent.MemberRoleUpdate,
+                type: Discord.AuditLogEvent.MemberRoleUpdate,
             });
             const logEntry = auditLogs.entries.first();
 
@@ -244,7 +264,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                 // Fetch the relevant audit log entries
                 const auditLogs = await newMember.guild.fetchAuditLogs({
                     limit: 5,
-                    type: AuditLogEvent.MemberUpdate, // Correct integer code for MEMBER_UPDATE
+                    type: Discord.AuditLogEvent.MemberUpdate, // Correct integer code for MEMBER_UPDATE
                 });
 
                 // Find the relevant audit log entry
@@ -254,7 +274,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
                 const timeoutReason = auditEntry ? auditEntry.reason || "No reason provided." : "No reason provided.";
 
-                const embed = new EmbedBuilder()
+                const embed = new Discord.EmbedBuilder()
                     .setTitle('Member Timed Out')
                     .setColor('#ff0000')
                     .addFields(
@@ -328,22 +348,22 @@ client.on('messageCreate', async message => {
                 message.channel.send('No game is currently running.');
             }
             return;
-        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame') {
+        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startconnect4') {
             message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
             return;
         } else if (command === '!help') {
-            const commands = await readCommandsFile();
+            const commands = await helpgame.readCommandsFile();
             if (!commands) {
                 return message.channel.send('Failed to load commands.');
             }
 
             const helpCategory = args[1] ? args[1].toLowerCase() : null;
             if (helpCategory === 'admin') {
-                await handleHelpCommand(message, commands.adminCommands);
+                await helpgame.handleHelpCommand(message, commands.adminCommands);
             } else if (helpCategory === 'games') {
-                await handleHelpCommand(message, commands.gameCommands);
+                await helpgame.handleHelpCommand(message, commands.gameCommands);
             } else if (helpCategory === 'general') {
-                await handleHelpCommand(message, commands.generalCommands);
+                await helpgame.handleHelpCommand(message, commands.generalCommands);
             } else {
                 const sections = [
                     { name: 'Admin Commands', commands: commands.adminCommands },
@@ -352,7 +372,7 @@ client.on('messageCreate', async message => {
                 ];
 
                 function createSectionEmbed(section, index) {
-                    return new EmbedBuilder()
+                    return new Discord.EmbedBuilder()
                         .setTitle(`Help - ${section.name}`)
                         .setColor('#00ff00')
                         .setDescription('Here are the available commands:')
@@ -367,17 +387,17 @@ client.on('messageCreate', async message => {
                     let currentSectionIndex = 0;
 
                     const helpEmbed = createSectionEmbed(sections[currentSectionIndex], currentSectionIndex);
-                    const row = new ActionRowBuilder()
+                    const row = new Discord.ActionRowBuilder()
                         .addComponents(
-                            new ButtonBuilder()
+                            new Discord.ButtonBuilder()
                                 .setCustomId('prevSection')
                                 .setLabel('←')
-                                .setStyle(ButtonStyle.Primary)
+                                .setStyle(Discord.ButtonStyle.Primary)
                                 .setDisabled(currentSectionIndex === 0),
-                            new ButtonBuilder()
+                            new Discord.ButtonBuilder()
                                 .setCustomId('nextSection')
                                 .setLabel('→')
-                                .setStyle(ButtonStyle.Primary)
+                                .setStyle(Discord.ButtonStyle.Primary)
                                 .setDisabled(currentSectionIndex === sections.length - 1)
                         );
 
@@ -396,17 +416,17 @@ client.on('messageCreate', async message => {
                         await i.update({
                             embeds: [createSectionEmbed(sections[currentSectionIndex], currentSectionIndex)],
                             components: [
-                                new ActionRowBuilder()
+                                new Discord.ActionRowBuilder()
                                     .addComponents(
-                                        new ButtonBuilder()
+                                        new Discord.ButtonBuilder()
                                             .setCustomId('prevSection')
                                             .setLabel('←')
-                                            .setStyle(ButtonStyle.Primary)
+                                            .setStyle(Discord.ButtonStyle.Primary)
                                             .setDisabled(currentSectionIndex === 0),
-                                        new ButtonBuilder()
+                                        new Discord.ButtonBuilder()
                                             .setCustomId('nextSection')
                                             .setLabel('→')
-                                            .setStyle(ButtonStyle.Primary)
+                                            .setStyle(Discord.ButtonStyle.Primary)
                                             .setDisabled(currentSectionIndex === sections.length - 1)
                                     )
                             ]
@@ -449,7 +469,10 @@ client.on('messageCreate', async message => {
                 return message.channel.send('You cannot play chess with yourself.');
             }
 
-            if (playerGames.has(message.author.id) || playerGames.has(mentionedUser.id)) {
+            const authorInGame = await isPlayerInGame(message.author.id);
+            const mentionedUserInGame = await isPlayerInGame(mentionedUser.id);
+
+            if (authorInGame || mentionedUserInGame) {
                 return message.channel.send('One or both players are already in a game.');
             }
 
@@ -458,6 +481,32 @@ client.on('messageCreate', async message => {
             participants.set(mentionedUser.id, mentionedUser.username);
 
             await chessGame.startChessGame(message, participants);
+        } else if (command === '!startconnect4') {
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return message.channel.send('Please mention a user to start a Connect 4 game with.');
+            }
+
+            if (mentionedUser.bot) {
+                return message.channel.send('You cannot play Connect 4 with a bot.');
+            }
+
+            if (mentionedUser.id === message.author.id) {
+                return message.channel.send('You cannot play Connect 4 with yourself.');
+            }
+
+            const authorInGame = await isPlayerInGame(message.author.id);
+            const mentionedUserInGame = await isPlayerInGame(mentionedUser.id);
+
+            if (authorInGame || mentionedUserInGame) {
+                return message.channel.send('One or both players are already in a game.');
+            }
+
+            const participants = new Map();
+            participants.set(message.author.id, message.author.username);
+            participants.set(mentionedUser.id, mentionedUser.username);
+
+            await connect4Game.startConnect4Game(client, message, participants);
         } else if (command === '!startblackjack') {
             currentGame = new GameSession('blackjack', message);
             await currentGame.start();
@@ -471,26 +520,26 @@ client.on('messageCreate', async message => {
         } else if (command === '!balance') {
             await getBalance(message);
         } else if (command === '!move') {
+            const gameKey = playerGames.get(message.author.id);
             const from = args[1];
             const to = args[2];
+            if (!from || !to) {
+                return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
+            }
             if (!(from.length !== 2 || to.length !== 2)) {
-                if (!from || !to) {
-                    return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
-                }
 
                 const playerGames = await getPlayerGames(); // Fetch player games from the database
-                const gameKey = playerGames.get(message.author.id);
 
                 console.log(`!move command with gameKey: ${gameKey}`);
                 console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
 
-                if (gameKey) {
-                    await chessGame.makeMove(message, `${from}-${to}`, gameKey);
-                } else {
-                    message.channel.send('No chess game in progress.');
-                }
             } else {
-                message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
+                return message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
+            }
+            if (gameKey) {
+                await chessGame.makeMove(message, `${from}-${to}`, gameKey);
+            } else {
+                message.channel.send('No chess game in progress.');
             }
         } else if (command === '!resign') {
             await chessGame.resignGame(message);
@@ -525,7 +574,7 @@ client.on('messageCreate', async message => {
                 });
                 const stats = response.data.data;
                 console.log(stats.stats.all);
-                const embed = new EmbedBuilder()
+                const embed = new Discord.EmbedBuilder()
                     .setTitle(`Fortnite Stats for ${username}`)
                     .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
                     .addFields(
@@ -661,7 +710,7 @@ client.on('messageCreate', async message => {
 
         } else if (command === '!skull') {
             if (isAdmin(message.member)) {
-                if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                if (!message.member.permissions.has(Discord.PermissionsBitField.Flags.Administrator)) {
                     return message.channel.send('You do not have permission to use this command.');
                 }
 
@@ -768,7 +817,7 @@ class GameSession {
 }
 
 async function startJoinPhase(message) {
-    const embed = new EmbedBuilder()
+    const embed = new Discord.EmbedBuilder()
         .setColor('#0099ff')
         .setTitle('React to Participate')
         .setDescription('React with ✅ to participate in the game! You have 15 seconds.');
@@ -799,7 +848,7 @@ async function startJoinPhase(message) {
 }
 
 async function sendTemporaryEmbed(channel, description, user) {
-    const embed = new EmbedBuilder()
+    const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
         .setDescription(description);
 

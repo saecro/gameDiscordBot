@@ -1,5 +1,4 @@
 const { Chess } = require('chess.js');
-const fs = require('fs');
 const generateChessboardImage = require('./chessboard.js');
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
