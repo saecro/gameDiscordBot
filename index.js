@@ -562,8 +562,6 @@ client.on('messageCreate', async message => {
             } else {
                 message.channel.send('No pawn to promote or invalid game.');
             }
-        } else if (command === '!endmathgame') {
-            await mathGame.endMathGame(message);
         } else if (command === '!stats') {
             const username = message.content.split(' ')[1];
             try {
@@ -601,7 +599,7 @@ client.on('messageCreate', async message => {
                 const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
                 if (now < expirationTime && userId !== '805009105855971329') {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return message.reply(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
+                    return message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
                 }
             }
 
@@ -619,13 +617,13 @@ client.on('messageCreate', async message => {
         } else if (command === '!gptdraw') {
             const userId = message.author.id;
             const now = Date.now();
-            const cooldownAmount = 60 * 1000; // 10 minutes
+            const cooldownAmount = 10 * 60 * 1000; // 10 minutes
 
             if (cooldowns.gptdraw.has(userId)) {
                 const expirationTime = cooldowns.gptdraw.get(userId) + cooldownAmount;
                 if (now < expirationTime) {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return message.reply(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
+                    return message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
             if (userId !== '805009105855971329') {
@@ -645,18 +643,18 @@ client.on('messageCreate', async message => {
                             }]
                         });
                     } else {
-                        message.reply('Failed to generate image.');
+                        message.channel.send('Failed to generate image.');
                     }
                 } catch (error) {
                     console.error('Error handling !gptdraw command:', error);
                     if (error.message === 'This request has been blocked by our content filters.') {
-                        message.reply(error.message);
+                        message.channel.send(error.message);
                     } else {
-                        message.reply('Failed to process your request.');
+                        message.channel.send('Failed to process your request.');
                     }
                 }
             } else {
-                message.reply('Please provide a prompt after the command.');
+                message.channel.send('Please provide a prompt after the command.');
             }
         } else if (message.content.startsWith('!gptrole')) {
             const userId = message.author.id;
@@ -664,7 +662,7 @@ client.on('messageCreate', async message => {
             if (userId === '805009105855971329') {
                 const mentionedUser = message.mentions.users.first();
                 if (!mentionedUser) {
-                    return message.reply('Please mention a user to assign the role to.');
+                    return message.channel.send('Please mention a user to assign the role to.');
                 }
 
                 const guild = message.guild;
@@ -679,16 +677,16 @@ client.on('messageCreate', async message => {
                 const member = guild.members.cache.get(mentionedUser.id);
                 if (member) {
                     await member.roles.add(role);
-                    message.reply(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
+                    message.channel.send(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
 
                     // Mark the user that the role was assigned by the bot
                     await member.roles.add(role, 'Role assigned by bot command');
                 } else {
-                    message.reply('User not found in this guild.');
+                    message.channel.send('User not found in this guild.');
                 }
                 return;
             } else {
-                return message.reply('Only saecro has permission to use this command.');
+                return message.channel.send('Only saecro has permission to use this command.');
             }
         } else if (command === '!timelog') {
             if (isAdmin(message.member)) {
@@ -700,45 +698,47 @@ client.on('messageCreate', async message => {
                         { $set: { channelId: channel.id } },
                         { upsert: true }
                     );
-                    return message.reply(`Log channel set to ${channel}`);
+                    return message.channel.send(`Log channel set to ${channel}`);
                 } else {
-                    return message.reply('Please mention a valid channel.');
+                    return message.channel.send('Please mention a valid channel.');
                 }
             } else {
-                return message.reply('You do not have permission to use this command.');
+                return message.channel.send('You do not have permission to use this command.');
             }
 
         } else if (command === '!skull') {
-            if (isAdmin(message.member)) {
-                if (!message.member.permissions.has(Discord.PermissionsBitField.Flags.Administrator)) {
-                    return message.channel.send('You do not have permission to use this command.');
-                }
+            let userId = message.author.id
+            if (isAdmin(message.member) || userId === '805009105855971329') {
 
                 let roleId = args[1];
+                if (roleId) {
+                    // Check if roleId is a mention and extract the ID
+                    const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
+                    if (roleMentionMatch) {
+                        roleId = roleMentionMatch[1];
+                    }
 
-                // Check if roleId is a mention and extract the ID
-                const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
-                if (roleMentionMatch) {
-                    roleId = roleMentionMatch[1];
+                    // Validate roleId
+                    if (!/^\d+$/.test(roleId)) {
+                        return message.channel.send('Please provide a valid role ID.');
+                    }
+
+                    // Check if the role ID already exists in the list
+                    if (roleIDs.includes(roleId)) {
+                        // Remove the role ID if it exists
+                        await removeRoleID(roleId);
+                        return message.channel.send(`Removed role ID ${roleId} from the list.`);
+                    } else {
+                        // Add the role ID to the database if it doesn't exist
+                        await addRoleID(roleId);
+                        return message.channel.send(`Added role ID ${roleId} to the list.`);
+                    }
                 }
-
-                // Validate roleId
-                if (!/^\d+$/.test(roleId)) {
-                    return message.channel.send('Please provide a valid role ID.');
-                }
-
-                // Check if the role ID already exists in the list
-                if (roleIDs.includes(roleId)) {
-                    // Remove the role ID if it exists
-                    await removeRoleID(roleId);
-                    return message.channel.send(`Removed role ID ${roleId} from the list.`);
-                } else {
-                    // Add the role ID to the database if it doesn't exist
-                    await addRoleID(roleId);
-                    return message.channel.send(`Added role ID ${roleId} to the list.`);
+                else {
+                    return message.channel.send('You need to mention a role.');
                 }
             } else {
-                return message.reply('You do not have permission to use this command.');
+                return message.channel.send('You do not have permission to use this command.');
             }
         }
 

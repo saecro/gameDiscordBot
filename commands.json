@@ -24,44 +24,51 @@
     ],
     "gameCommands": [
         {
-            "name": "startquiz/endquiz",
-            "title": "Help - !startquiz/endquiz",
-            "description": "The `!startquiz/endquiz` command initiates a quiz game where participants answer questions to score points.",
-            "usage": "`!startquiz/endquiz`",
-            "example": "`!startquiz/endquiz`\nYou will see a prompt to join the game. React with ✅ to join and start answering the questions."
+            "name": "startquiz",
+            "title": "Help - !startquiz",
+            "description": "The `!startquiz` command initiates a quiz game where users answer questions to score points.",
+            "usage": "`!startquiz`",
+            "example": "`!startquiz`\nYou will see a prompt to join the game."
         },
         {
-            "name": "startmathgame/endmathgame",
-            "title": "Help - !startmathgame/endmathgame",
-            "description": "The `!startmathgame/endmathgame` command initiates a math game where participants solve math problems to score points.",
-            "usage": "`!startmathgame/endmathgame`",
-            "example": "`!startmathgame/endmathgame`\nYou will see a prompt to join the game. React with ✅ to join and start answering the questions."
+            "name": "startmathgame",
+            "title": "Help - !startmathgame",
+            "description": "The `!startmathgame` command initiates a math game where users solve math problems to score points.",
+            "usage": "`!startmathgame`",
+            "example": "`!startmathgame`\nYou will see a prompt to join the game."
         },
         {
-            "name": "starthangman/endhangman",
-            "title": "Help - !starthangman/endhangman",
-            "description": "The `!starthangman/endhangman` command initiates a hangman game where participants guess letters to form a word.",
-            "usage": "`!starthangman/endhangman`",
-            "example": "`!starthangman/endhangman`\nYou will see a prompt to join the game. React with ✅ to join and start guessing the letters."
+            "name": "starthangman",
+            "title": "Help - !starthangman",
+            "description": "The `!starthangman` command initiates a hangman game where users guess letters to form a word.",
+            "usage": "`!starthangman`",
+            "example": "`!starthangman`\nYou will see a prompt to join the game."
         },
         {
-            "name": "startchessgame/endchessgame",
-            "title": "Help - !startchessgame/endchessgame",
-            "description": "The `!startchessgame/endchessgame` command initiates a chess game with another user.",
-            "usage": "`!startchessgame/endchessgame @user`",
-            "example": "`!startchessgame/endchessgame @user`\nMention a user to start a chess game with them and begin making moves."
+            "name": "startconnect4",
+            "title": "Help - !startconnect4",
+            "description": "The `!startconnect4` command initiates a connect 4 game where users try win in a four-in-a-row.",
+            "usage": "`!startconnect4`",
+            "example": "`!startconnect4 @user`\nMention a user to start a connect 4 game with them and begin making moves."
         },
         {
-            "name": "startblackjack/endblackjack",
-            "title": "Help - !startblackjack/endblackjack",
-            "description": "The `!startblackjack/endblackjack` command initiates a blackjack game.",
-            "usage": "`!startblackjack/endblackjack`",
-            "example": "`!startblackjack/endblackjack`\nYou will see a prompt to join the game. React with ✅ to join and start playing."
+            "name": "startchessgame",
+            "title": "Help - !startchessgame",
+            "description": "The `!startchessgame` command initiates a chess game with another user.",
+            "usage": "`!startchessgame @user`",
+            "example": "`!startchessgame @user`\nMention a user to start a chess game with them and begin making moves."
+        },
+        {
+            "name": "startblackjack",
+            "title": "Help - !startblackjack",
+            "description": "The `!startblackjack` command initiates a blackjack game.",
+            "usage": "`!startblackjack`",
+            "example": "`!startblackjack`\nYou will see a prompt to join the game."
         },
         {
             "name": "slots",
             "title": "Help - !slots",
-            "description": "The `!slots` command initiates a slot machine game where participants bet money.",
+            "description": "The `!slots` command initiates a slot machine game where users bet money.",
             "usage": "`!slots <bet>`",
             "example": "`!slots 100`\nPlace a bet of 100 and spin the slot machine."
         },
@@ -94,20 +101,27 @@
             "example": "`!promote Q`\nPromote a pawn to a Queen."
         },
         {
-            "name": "startgreentea/endgreentea",
-            "title": "Help - !startgreentea/endgreentea",
-            "description": "The `!startgreentea/endgreentea` command starts/ends a green tea game.",
-            "usage": "`!startgreentea/endgreentea`",
-            "example": "`!startgreentea/endgreentea`\nstarts/ends a green tea game."
+            "name": "startgreentea",
+            "title": "Help - !startgreentea",
+            "description": "The `!startgreentea` command starts a green tea game.",
+            "usage": "`!startgreentea`",
+            "example": "`!startgreentea`\nstarts a green tea game."
         },
         {
-            "name": "startblacktea/endblacktea",
-            "title": "Help - !startblacktea/endblacktea",
-            "description": "The `!startblacktea/endblacktea` command starts/ends a black tea game.",
-            "usage": "`!startblacktea/endblacktea`",
-            "example": "`!startblacktea/endblacktea`\nstarts/ends a black tea game."
+            "name": "startblacktea",
+            "title": "Help - !startblacktea",
+            "description": "The `!startblacktea` command starts a black tea game.",
+            "usage": "`!startblacktea`",
+            "example": "`!startblacktea`\nstarts a black tea game."
+        },
+        {
+            "name": "exitgame",
+            "title": "Help - !exitgame",
+            "description": "The `!exitgame` command ends any current game running either between 2 people or in a group",
+            "usage": "`!exitgame`",
+            "example": "`!exitgame`\nThis will automatically end the game. use wisely"
         }
-    ],
+],
     "generalCommands": [
         {
             "name": "balance",

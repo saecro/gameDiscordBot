@@ -184,14 +184,31 @@ function checkWin(board) {
 
 async function endConnect4Game(message, players, result) {
     const gameKey = `${players[0]}-${players[1]}`;
+    await endConnect4GameByGameKey(gameKey)
+    message.channel.send(result);
+}
 
+async function resignGame(message) {
+    const playerId = message.author.id;
+    const gameKey = await getPlayerGameKey(playerId);
+
+    if (!gameKey) {
+        message.channel.send('You are not currently in a Connect 4 game.');
+        return;
+    }
+
+    const opponentId = gameKey.split('-').find(id => id !== playerId);
+    message.channel.send(`<@${playerId}> has resigned. <@${opponentId}> wins.`);
+    await endConnect4GameByGameKey(gameKey);
+}
+
+async function endConnect4GameByGameKey(gameKey) {
     activeGames.delete(gameKey);
     await connect4Games.deleteMany({ gameKey });
-
-    message.channel.send(result);
 }
 
 module.exports = {
     startConnect4Game,
     makeMove,
+    resignGame,
 };
