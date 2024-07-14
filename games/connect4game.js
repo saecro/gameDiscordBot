@@ -2,10 +2,10 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-// Initialize MongoDB client
+
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
-const connect4Games = database.collection('connect4Games');
+const connect4Games = database.collection('Games');
 
 const activeGames = new Map();
 const COLUMN_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣'];
@@ -24,7 +24,7 @@ async function startConnect4Game(client, message, participants) {
     const gameKey = `${authorId}-${opponentId}`;
 
     if (await isPlayerInGame(authorId) || await isPlayerInGame(opponentId)) {
-        message.channel.send('One or both players are already in a game.');
+        await message.channel.send('One or both players are already in a game.');
         return;
     }
 
@@ -134,7 +134,7 @@ async function getPlayerGameKey(playerId) {
 }
 
 function checkWin(board) {
-    // Check horizontal, vertical, and diagonal for a win
+    
     for (let row = 0; row < ROWS; row++) {
         for (let col = 0; col < COLUMNS - 3; col++) {
             if (board[row][col] !== PLAYER_COLORS.empty &&
@@ -185,7 +185,7 @@ function checkWin(board) {
 async function endConnect4Game(message, players, result) {
     const gameKey = `${players[0]}-${players[1]}`;
     await endConnect4GameByGameKey(gameKey)
-    message.channel.send(result);
+    await message.channel.send(result);
 }
 
 async function resignGame(message) {
@@ -193,12 +193,12 @@ async function resignGame(message) {
     const gameKey = await getPlayerGameKey(playerId);
 
     if (!gameKey) {
-        message.channel.send('You are not currently in a Connect 4 game.');
+        await message.channel.send('You are not currently in a Connect 4 game.');
         return;
     }
 
     const opponentId = gameKey.split('-').find(id => id !== playerId);
-    message.channel.send(`<@${playerId}> has resigned. <@${opponentId}> wins.`);
+    await message.channel.send(`<@${playerId}> has resigned. <@${opponentId}> wins.`);
     await endConnect4GameByGameKey(gameKey);
 }
 

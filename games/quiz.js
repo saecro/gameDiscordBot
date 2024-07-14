@@ -4,7 +4,7 @@ const Discord = require('discord.js');
 
 let gameState = {};
 
-// Load questions from the JSON file
+
 const questions = JSON.parse(fs.readFileSync(path.join(__dirname, 'questions.json'), 'utf8'));
 
 const checkRunning = (channelId) => {

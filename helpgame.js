@@ -2,10 +2,10 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('
 const fs = require('fs');
 const path = require('path');
 
-// Path to the commands.json file
+
 const filePath = path.join(__dirname, 'commands.json');
 
-// Function to read the commands.json file
+
 function readCommandsFile() {
     return new Promise((resolve, reject) => {
         fs.readFile(filePath, 'utf8', (err, data) => {

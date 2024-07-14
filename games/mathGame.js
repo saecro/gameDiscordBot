@@ -15,7 +15,7 @@ const checkRunning = (channelId) => {
 async function startMathGame(message, participants) {
     let points = new Map();
 
-    // Store game state
+    
     gameState[message.channel.id] = {
         running: true,
         participants,
@@ -92,7 +92,7 @@ async function startMathGame(message, participants) {
             console.log('No messages collected within the time limit.');
         }
 
-        if (!checkRunning(message.channel.id)) return; // Check right before processing collected messages
+        if (!checkRunning(message.channel.id)) return; 
 
         let scoresMessage = 'Scores this round:\n';
         if (collected.size > 0) {

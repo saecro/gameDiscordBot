@@ -17,14 +17,13 @@ const openai = new OpenAI({
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
 const currencyCollection = database.collection('currency');
-const connect4Games = database.collection('connect4Games');
 const logChannels = database.collection('LogChannels');
 const roleCollection = database.collection('RoleIDs');
-const chessGames = database.collection('chessGames');
 const aiMessages = database.collection('AIMessages');
 const timeoutLogs = database.collection('Timeouts');
+const gamesCollection = database.collection('Games');
 
-// Game modules
+
 const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
@@ -34,8 +33,9 @@ const greenTea = require('./games/greentea.js');
 const blackTea = require('./games/blacktea.js');
 const hangMan = require('./games/hangMan.js');
 const quizGame = require('./games/quiz.js');
+const shop = require('./shop/shop.js');
 
-// Initialize Discord client
+
 const client = new Discord.Client({
     intents: [
         Discord.GatewayIntentBits.Guilds,
@@ -53,13 +53,26 @@ const promotionChoices = new Map();
 let roleIDs = [];
 
 async function getPlayerGames() {
-    const chessGamesArray = await chessGames.find().toArray();
-    const connect4GamesArray = await connect4Games.find().toArray();
+    const chessGamesArray = await gamesCollection.find().toArray();
+    const connect4GamesArray = await gamesCollection.find().toArray();
     const games = chessGamesArray.concat(connect4GamesArray);
     return games.reduce((map, game) => {
         map.set(game.playerId, game.gameKey);
         return map;
     }, new Map());
+}
+
+async function getBalance(message) {
+    const userId = message.author.id;
+    const balance = await getOrCreateUserCurrency(userId);
+
+    const embed = new Discord.EmbedBuilder()
+        .setColor('#00ff00')
+        .setTitle(`${message.author.username}'s Balance`)
+        .setDescription(`You have ${balance} coins.`)
+        .setTimestamp();
+
+    return embed
 }
 
 async function fetchRoleIDs() {
@@ -81,7 +94,7 @@ async function addRoleID(roleId) {
         );
         console.log(`Role ID ${roleId} added to the database.`);
         if (!roleIDs.includes(roleId)) {
-            roleIDs.push(roleId); // Add to the local cache
+            roleIDs.push(roleId); 
         }
     } catch (error) {
         console.error(`Error adding role ID ${roleId}:`, error);
@@ -101,12 +114,12 @@ async function getOrCreateUserCurrency(userId) {
 }
 
 async function isPlayerInGame(playerId) {
-    const chessGame = await chessGames.findOne({ playerId });
+    const chessGame = await gamesCollection.findOne({ playerId });
     if (chessGame) {
         return true;
     }
 
-    const connect4Game = await connect4Games.findOne({ playerId });
+    const connect4Game = await gamesCollection.findOne({ playerId });
     if (connect4Game) {
         return true;
     }
@@ -118,7 +131,7 @@ async function removeRoleID(roleId) {
     try {
         await roleCollection.deleteOne({ roleId });
         console.log(`Role ID ${roleId} removed from the database.`);
-        roleIDs = roleIDs.filter(id => id !== roleId); // Remove from the local cache
+        roleIDs = roleIDs.filter(id => id !== roleId); 
     } catch (error) {
         console.error(`Error removing role ID ${roleId}:`, error);
     }
@@ -155,31 +168,24 @@ async function drawWithAssistant(userMessage) {
         });
         const imageUrl = response.data[0].url;
 
-        // Fetch the image data
+        
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
         return imageData;
     } catch (error) {
         console.error('Error generating or fetching image:', error);
-
-        // Check if it's a content policy violation
-        if (error.response && error.response.data && error.response.data.error && error.response.data.error.code === 'content_policy_violation') {
-            throw new Error('This request has been blocked by our content filters.');
-        }
-
-        // For other errors, return null
-        return null;
+        return error
     }
 }
 
 async function getChatHistory(userId) {
     const chatHistory = await aiMessages.find({ userId })
-        .sort({ createdAt: -1 })  // Sort in descending order to get the latest messages first
-        .limit(7)                 // Limit the results to the last 7 messages
+        .sort({ createdAt: -1 })  
+        .limit(7)                 
         .toArray();
 
-    chatHistory.reverse();         // Reverse the array to have the messages in chronological order
+    chatHistory.reverse();         
     return chatHistory.map(message => ({ role: message.role, content: message.content }));
 }
 
@@ -193,19 +199,19 @@ client.once('ready', async () => {
     await fetchRoleIDs();
     client.user.setActivity('Managing roles', { type: 'PLAYING' });
 
-    // Clear all chess games
-    await chessGames.deleteMany({});
-    await connect4Games.deleteMany({});
+    
+    await gamesCollection.deleteMany({});
+    await gamesCollection.deleteMany({});
 
     console.log('Caching all users');
 
     const guildPromises = client.guilds.cache.map(async (guild) => {
         try {
-            // Fetch all members of the guild
+            
             await guild.members.fetch();
             console.log(`Cached all members in guild: ${guild.name}`);
 
-            // Loop through each member after fetching
+            
             guild.members.cache.forEach((member) => {
                 const userID = member.id;
                 console.log(userID);
@@ -216,14 +222,14 @@ client.once('ready', async () => {
         }
     });
 
-    // Await all guild processing promises
+    
     await Promise.all(guildPromises);
 
     console.log('All users cached and processed');
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    const roleIDs = ['list', 'of', 'role', 'IDs']; // Add your role IDs here
+    const roleIDs = ['list', 'of', 'role', 'IDs']; 
     const gptRole = newMember.guild.roles.cache.find(role => role.name === 'gpt');
 
     for (const roleId of roleIDs) {
@@ -231,17 +237,17 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         const hasRole = newMember.roles.cache.has(roleId);
 
         if (!hadRole && hasRole) {
-            // Role was added
+            
             console.log(`User ${newMember.id} was granted role ${roleId}`);
         } else if (hadRole && !hasRole) {
-            // Role was removed
+            
             console.log(`User ${newMember.id} was removed from role ${roleId}`);
         }
     }
 
     if (gptRole) {
         if (!oldMember.roles.cache.has(gptRole.id) && newMember.roles.cache.has(gptRole.id)) {
-            // Check if the role was not added by the bot command
+            
             const auditLogs = await newMember.guild.fetchAuditLogs({
                 limit: 1,
                 type: Discord.AuditLogEvent.MemberRoleUpdate,
@@ -261,13 +267,13 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
         if (newMember.communicationDisabledUntil) {
             try {
-                // Fetch the relevant audit log entries
+                
                 const auditLogs = await newMember.guild.fetchAuditLogs({
                     limit: 5,
-                    type: Discord.AuditLogEvent.MemberUpdate, // Correct integer code for MEMBER_UPDATE
+                    type: Discord.AuditLogEvent.MemberUpdate, 
                 });
 
-                // Find the relevant audit log entry
+                
                 const auditEntry = auditLogs.entries
                     .filter(entry => entry.target.id === newMember.id)
                     .find(entry => entry.changes.some(change => change.key === 'communication_disabled_until'));
@@ -284,7 +290,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     )
                     .setTimestamp();
 
-                // Save the log to the database
+                
                 await timeoutLogs.insertOne({
                     guildId: newMember.guild.id,
                     userId: newMember.id,
@@ -294,7 +300,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     createdAt: new Date()
                 });
 
-                // Fetch the log channel ID from the database
+                
                 const logChannelDoc = await logChannels.findOne({ guildId: newMember.guild.id });
                 const logChannelId = logChannelDoc ? logChannelDoc.channelId : null;
 
@@ -309,7 +315,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             }
         }
     } else if (oldMember.isCommunicationDisabled() && !newMember.isCommunicationDisabled()) {
-        // Timeout was cleared
+        
         try {
             await timeoutLogs.deleteOne({
                 guildId: newMember.guild.id,
@@ -327,7 +333,7 @@ let currentGame = null;
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    const playerGames = await getPlayerGames(); // Fetch player games from the database
+    const playerGames = await getPlayerGames(); 
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
@@ -345,16 +351,16 @@ client.on('messageCreate', async message => {
                 currentGame.endGame();
                 currentGame = null;
             } else {
-                message.channel.send('No game is currently running.');
+                await message.channel.send('No game is currently running.');
             }
             return;
         } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startconnect4') {
-            message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
+            await message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
             return;
         } else if (command === '!help') {
             const commands = await helpgame.readCommandsFile();
             if (!commands) {
-                return message.channel.send('Failed to load commands.');
+                return await message.channel.send('Failed to load commands.');
             }
 
             const helpCategory = args[1] ? args[1].toLowerCase() : null;
@@ -458,22 +464,22 @@ client.on('messageCreate', async message => {
         } else if (command === '!startchessgame') {
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
-                return message.channel.send('Please mention a user to start a chess game with.');
+                return await message.channel.send('Please mention a user to start a chess game with.');
             }
 
             if (mentionedUser.bot) {
-                return message.channel.send('You cannot play chess with a bot.');
+                return await message.channel.send('You cannot play chess with a bot.');
             }
 
             if (mentionedUser.id === message.author.id) {
-                return message.channel.send('You cannot play chess with yourself.');
+                return await message.channel.send('You cannot play chess with yourself.');
             }
 
             const authorInGame = await isPlayerInGame(message.author.id);
             const mentionedUserInGame = await isPlayerInGame(mentionedUser.id);
 
             if (authorInGame || mentionedUserInGame) {
-                return message.channel.send('One or both players are already in a game.');
+                return await message.channel.send('One or both players are already in a game.');
             }
 
             const participants = new Map();
@@ -484,22 +490,22 @@ client.on('messageCreate', async message => {
         } else if (command === '!startconnect4') {
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
-                return message.channel.send('Please mention a user to start a Connect 4 game with.');
+                return await message.channel.send('Please mention a user to start a Connect 4 game with.');
             }
 
             if (mentionedUser.bot) {
-                return message.channel.send('You cannot play Connect 4 with a bot.');
+                return await message.channel.send('You cannot play Connect 4 with a bot.');
             }
 
             if (mentionedUser.id === message.author.id) {
-                return message.channel.send('You cannot play Connect 4 with yourself.');
+                return await message.channel.send('You cannot play Connect 4 with yourself.');
             }
 
             const authorInGame = await isPlayerInGame(message.author.id);
             const mentionedUserInGame = await isPlayerInGame(mentionedUser.id);
 
             if (authorInGame || mentionedUserInGame) {
-                return message.channel.send('One or both players are already in a game.');
+                return await message.channel.send('One or both players are already in a game.');
             }
 
             const participants = new Map();
@@ -515,38 +521,39 @@ client.on('messageCreate', async message => {
             if (!isNaN(bet)) {
                 await slotMachineGame.slotMachineGame(message, bet);
             } else {
-                message.channel.send('Please enter a valid bet amount. `!slots 100`');
+                await message.channel.send('Please enter a valid bet amount. `!slots 100`');
             }
         } else if (command === '!balance') {
-            await getBalance(message);
+            const embed = await getBalance(message);
+            await message.channel.send({ embeds: [embed] });
         } else if (command === '!move') {
             const gameKey = playerGames.get(message.author.id);
             const from = args[1];
             const to = args[2];
             if (!from || !to) {
-                return message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
+                return await message.channel.send('Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
             }
             if (!(from.length !== 2 || to.length !== 2)) {
 
-                const playerGames = await getPlayerGames(); // Fetch player games from the database
+                const playerGames = await getPlayerGames(); 
 
                 console.log(`!move command with gameKey: ${gameKey}`);
                 console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
 
             } else {
-                return message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
+                return await message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
             }
             if (gameKey) {
                 await chessGame.makeMove(message, `${from}-${to}`, gameKey);
             } else {
-                message.channel.send('No chess game in progress.');
+                await message.channel.send('No chess game in progress.');
             }
         } else if (command === '!resign') {
             await chessGame.resignGame(message);
         } else if (command === '!draw') {
             await chessGame.proposeDraw(message);
         } else if (command === '!promote') {
-            const playerGames = await getPlayerGames(); // Fetch player games from the database
+            const playerGames = await getPlayerGames(); 
             const gameKey = playerGames.get(message.author.id);
 
             console.log(`!promote command with gameKey: ${gameKey}`);
@@ -554,13 +561,13 @@ client.on('messageCreate', async message => {
             if (gameKey && promotionChoices.has(gameKey)) {
                 const choice = args[1].toLowerCase();
                 if (!['q', 'r', 'b', 'n'].includes(choice)) {
-                    message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
+                    await message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
                 } else {
                     promotionChoices.set(gameKey, { ...promotionChoices.get(gameKey), choice });
                     await chessGame.makeMove(message, `${promotionChoices.get(gameKey).from}-${promotionChoices.get(gameKey).to}`, gameKey, choice);
                 }
             } else {
-                message.channel.send('No pawn to promote or invalid game.');
+                await message.channel.send('No pawn to promote or invalid game.');
             }
         } else if (command === '!stats') {
             const username = message.content.split(' ')[1];
@@ -574,32 +581,32 @@ client.on('messageCreate', async message => {
                 console.log(stats.stats.all);
                 const embed = new Discord.EmbedBuilder()
                     .setTitle(`Fortnite Stats for ${username}`)
-                    .setThumbnail(stats.image) // Add actual avatar URL from the API response if available
+                    .setThumbnail(stats.image) 
                     .addFields(
                         { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
                         { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
                         { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
-                        { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, // Replace with actual peak rank if available
-                        { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } // Replace with actual current rank if available
+                        { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, 
+                        { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } 
                     )
-                    .setImage('https://example.com/rank-image.png') // Add actual rank image URL if available
+                    .setImage('https://example.com/rank-image.png') 
                     .setColor('#00ff00');
 
-                message.channel.send({ embeds: [embed] });
+                await message.channel.send({ embeds: [embed] });
             } catch (error) {
                 console.log(error);
-                message.channel.send('Error fetching stats. Make sure the username is correct.');
+                await message.channel.send('Error fetching stats. Make sure the username is correct.');
             }
         } else if (command === '!gpt') {
             const userId = message.author.id;
             const now = Date.now();
-            const cooldownAmount = 60 * 1000; // 1 minute
+            const cooldownAmount = 60 * 1000; 
 
             if (cooldowns.gpt.has(userId)) {
                 const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
                 if (now < expirationTime && userId !== '805009105855971329') {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
+                    return await message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
                 }
             }
 
@@ -608,22 +615,22 @@ client.on('messageCreate', async message => {
 
             const prompt = args.slice(1).join(' ');
             if (prompt) {
-                message.channel.sendTyping();
+                await message.channel.sendTyping();
                 const response = await chatWithAssistant(userId, prompt);
-                message.channel.send(response);
+                await message.channel.send(response);
             } else {
-                message.channel.send('Please provide a prompt after the command.');
+                await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
             const userId = message.author.id;
             const now = Date.now();
-            const cooldownAmount = 10 * 60 * 1000; // 10 minutes
+            const cooldownAmount = 10 * 60 * 1000; 
 
             if (cooldowns.gptdraw.has(userId)) {
                 const expirationTime = cooldowns.gptdraw.get(userId) + cooldownAmount;
                 if (now < expirationTime) {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
+                    return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
             if (userId !== '805009105855971329') {
@@ -633,28 +640,35 @@ client.on('messageCreate', async message => {
             const prompt = args.slice(1).join(' ');
             if (prompt) {
                 try {
-                    message.channel.sendTyping();
+                    await message.channel.sendTyping();
                     const base64Image = await drawWithAssistant(prompt);
-                    if (base64Image) {
-                        await message.channel.send({
-                            files: [{
-                                attachment: Buffer.from(base64Image, 'base64'),
-                                name: 'drawn_image.png'
-                            }]
-                        });
-                    } else {
-                        message.channel.send('Failed to generate image.');
+                    if (!base64Image.error) {
+                        if (base64Image) {
+                            await message.channel.send({
+                                files: [{
+                                    attachment: Buffer.from(base64Image, 'base64'),
+                                    name: 'drawn_image.png'
+                                }]
+                            });
+                        } else {
+                            await message.channel.send('Failed to generate image.');
+                            cooldowns.gptdraw.delete(userId);
+                        }
+                    }
+                    else {
+                        await message.channel.send(base64Image.error.message)
                     }
                 } catch (error) {
                     console.error('Error handling !gptdraw command:', error);
                     if (error.message === 'This request has been blocked by our content filters.') {
-                        message.channel.send(error.message);
+                        await message.channel.send(error.message);
                     } else {
-                        message.channel.send('Failed to process your request.');
+                        await message.channel.send('Failed to process your request.');
                     }
+                    cooldowns.gptdraw.delete(userId);
                 }
             } else {
-                message.channel.send('Please provide a prompt after the command.');
+                await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (message.content.startsWith('!gptrole')) {
             const userId = message.author.id;
@@ -662,7 +676,7 @@ client.on('messageCreate', async message => {
             if (userId === '805009105855971329') {
                 const mentionedUser = message.mentions.users.first();
                 if (!mentionedUser) {
-                    return message.channel.send('Please mention a user to assign the role to.');
+                    return await message.channel.send('Please mention a user to assign the role to.');
                 }
 
                 const guild = message.guild;
@@ -677,16 +691,16 @@ client.on('messageCreate', async message => {
                 const member = guild.members.cache.get(mentionedUser.id);
                 if (member) {
                     await member.roles.add(role);
-                    message.channel.send(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
+                    await message.channel.send(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
 
-                    // Mark the user that the role was assigned by the bot
+                    
                     await member.roles.add(role, 'Role assigned by bot command');
                 } else {
-                    message.channel.send('User not found in this guild.');
+                    await message.channel.send('User not found in this guild.');
                 }
                 return;
             } else {
-                return message.channel.send('Only saecro has permission to use this command.');
+                return await message.channel.send('Only saecro has permission to use this command.');
             }
         } else if (command === '!timelog') {
             if (isAdmin(message.member)) {
@@ -698,12 +712,12 @@ client.on('messageCreate', async message => {
                         { $set: { channelId: channel.id } },
                         { upsert: true }
                     );
-                    return message.channel.send(`Log channel set to ${channel}`);
+                    return await message.channel.send(`Log channel set to ${channel}`);
                 } else {
-                    return message.channel.send('Please mention a valid channel.');
+                    return await message.channel.send('Please mention a valid channel.');
                 }
             } else {
-                return message.channel.send('You do not have permission to use this command.');
+                return await message.channel.send('You do not have permission to use this command.');
             }
 
         } else if (command === '!skull') {
@@ -712,33 +726,53 @@ client.on('messageCreate', async message => {
 
                 let roleId = args[1];
                 if (roleId) {
-                    // Check if roleId is a mention and extract the ID
+                    
                     const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
                     if (roleMentionMatch) {
                         roleId = roleMentionMatch[1];
                     }
 
-                    // Validate roleId
+                    
                     if (!/^\d+$/.test(roleId)) {
-                        return message.channel.send('Please provide a valid role ID.');
+                        return await message.channel.send('Please provide a valid role ID.');
                     }
 
-                    // Check if the role ID already exists in the list
+                    
                     if (roleIDs.includes(roleId)) {
-                        // Remove the role ID if it exists
+                        
                         await removeRoleID(roleId);
-                        return message.channel.send(`Removed role ID ${roleId} from the list.`);
+                        return await message.channel.send(`Removed role ID ${roleId} from the list.`);
                     } else {
-                        // Add the role ID to the database if it doesn't exist
+                        
                         await addRoleID(roleId);
-                        return message.channel.send(`Added role ID ${roleId} to the list.`);
+                        return await message.channel.send(`Added role ID ${roleId} to the list.`);
                     }
                 }
                 else {
-                    return message.channel.send('You need to mention a role.');
+                    return await message.channel.send('You need to mention a role.');
                 }
             } else {
-                return message.channel.send('You do not have permission to use this command.');
+                return await message.channel.send('You do not have permission to use this command.');
+            }
+        } else if (command === '!shop') {
+            if (message.author.id === '805009105855971329') {
+                await shop.listShopItems(message);
+            }
+        } else if (command === '!buy') {
+            if (message.author.id === '805009105855971329') {
+                const itemName = args.slice(1, -1).join(' ');
+                const quantityArg = args.slice(-1)[0];
+                const quantity = isNaN(quantityArg) ? 1 : parseInt(quantityArg, 10);
+
+                if (itemName || quantityArg) {
+                    await shop.buyItem(message, itemName || quantityArg, quantity);
+                } else {
+                    await message.channel.send('Please use the correct format: !buy <item_name> <quantity>.');
+                }
+            }
+        } else if (command === '!inventory') {
+            if (message.author.id === '805009105855971329') {
+                await shop.showInventory(message);
             }
         }
 
@@ -760,7 +794,7 @@ class GameSession {
         if (this.participants.size > 0) {
             await this.startGame();
         } else {
-            this.message.channel.send('No one joined the game.');
+            await this.message.channel.send('No one joined the game.');
             currentGame = null;
         }
     }
@@ -789,11 +823,11 @@ class GameSession {
             console.log(`GameSession makeMove with gameKey: ${gameKey}`);
             const result = await chessGame.makeMove(message, `${from}-${to}`, gameKey);
             if (!result) {
-                message.channel.send('Invalid move, try again.');
+                await message.channel.send('Invalid move, try again.');
             }
         } catch (error) {
             console.error(error);
-            message.channel.send('Error making move: ' + error.message);
+            await message.channel.send('Error making move: ' + error.message);
         }
     }
 
@@ -855,37 +889,37 @@ async function sendTemporaryEmbed(channel, description, user) {
     const joinMessage = await channel.send({ embeds: [embed] });
     setTimeout(() => {
         joinMessage.delete().catch(console.error);
-    }, 5000); // Delete after 5 seconds
+    }, 5000); 
 }
 
 async function startQuizGame(message, participants) {
-    message.channel.send(`Starting quiz game with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting quiz game with: ${Array.from(participants.values()).join(', ')}`);
     await quizGame.startQuiz(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 async function startMathGame(message, participants) {
-    message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
     await mathGame.startMathGame(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 async function startGreenTea(message, participants) {
-    message.channel.send(`Starting greentea with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting greentea with: ${Array.from(participants.values()).join(', ')}`);
     await greenTea.startGreenTea(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 async function startBlackTea(message, participants) {
-    message.channel.send(`Starting blacktea with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting blacktea with: ${Array.from(participants.values()).join(', ')}`);
     await blackTea.startBlackTea(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 async function startHangMan(message, participants) {
-    message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
     await hangMan.startHangMan(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 async function startChessGame(message, participants) {
@@ -893,9 +927,9 @@ async function startChessGame(message, participants) {
 }
 
 async function startBlackjackGame(message, participants) {
-    message.channel.send(`Starting blackjack game with: ${Array.from(participants.values()).join(', ')}`);
+    await message.channel.send(`Starting blackjack game with: ${Array.from(participants.values()).join(', ')}`);
     await blackjackGame.startBlackjackGame(message, participants);
-    currentGame = null; // Game ended, reset currentGame
+    currentGame = null; 
 }
 
 client.login(process.env.DISCORD_TOKEN);
