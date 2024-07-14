@@ -3,6 +3,7 @@ require('dotenv').config();
 const axios = require('axios');
 const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
+const moment = require('moment-timezone');
 const helpgame = require('./helpgame.js');
 
 const cooldowns = {
@@ -16,13 +17,13 @@ const openai = new OpenAI({
 
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
+const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
 const logChannels = database.collection('LogChannels');
 const roleCollection = database.collection('RoleIDs');
 const aiMessages = database.collection('AIMessages');
-const timeoutLogs = database.collection('Timeouts');
 const gamesCollection = database.collection('Games');
-
+const timeoutLogs = database.collection('Timeouts');
 
 const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
@@ -35,7 +36,6 @@ const hangMan = require('./games/hangMan.js');
 const quizGame = require('./games/quiz.js');
 const shop = require('./shop/shop.js');
 
-
 const client = new Discord.Client({
     intents: [
         Discord.GatewayIntentBits.Guilds,
@@ -47,11 +47,62 @@ const client = new Discord.Client({
 });
 
 const apiKey = process.env.FORTNITE_API_KEY;
+const stateTimezones = {
+    'alabama': 'America/Chicago',
+    'alaska': 'America/Anchorage',
+    'arizona': 'America/Phoenix',
+    'arkansas': 'America/Chicago',
+    'california': 'America/Los_Angeles',
+    'colorado': 'America/Denver',
+    'connecticut': 'America/New_York',
+    'delaware': 'America/New_York',
+    'florida': 'America/New_York',
+    'georgia': 'America/New_York',
+    'hawaii': 'Pacific/Honolulu',
+    'idaho': 'America/Boise',
+    'illinois': 'America/Chicago',
+    'indiana': 'America/Indiana/Indianapolis',
+    'iowa': 'America/Chicago',
+    'kansas': 'America/Chicago',
+    'kentucky': 'America/New_York',
+    'louisiana': 'America/Chicago',
+    'maine': 'America/New_York',
+    'maryland': 'America/New_York',
+    'massachusetts': 'America/New_York',
+    'michigan': 'America/Detroit',
+    'minnesota': 'America/Chicago',
+    'mississippi': 'America/Chicago',
+    'missouri': 'America/Chicago',
+    'montana': 'America/Denver',
+    'nebraska': 'America/Chicago',
+    'nevada': 'America/Los_Angeles',
+    'new hampshire': 'America/New_York',
+    'new jersey': 'America/New_York',
+    'new mexico': 'America/Denver',
+    'new york': 'America/New_York',
+    'north carolina': 'America/New_York',
+    'north dakota': 'America/Chicago',
+    'ohio': 'America/New_York',
+    'oklahoma': 'America/Chicago',
+    'oregon': 'America/Los_Angeles',
+    'pennsylvania': 'America/New_York',
+    'rhode island': 'America/New_York',
+    'south carolina': 'America/New_York',
+    'south dakota': 'America/Chicago',
+    'tennessee': 'America/Chicago',
+    'texas': 'America/Chicago',
+    'utah': 'America/Denver',
+    'vermont': 'America/New_York',
+    'virginia': 'America/New_York',
+    'washington': 'America/Los_Angeles',
+    'west virginia': 'America/New_York',
+    'wisconsin': 'America/Chicago',
+    'wyoming': 'America/Denver'
+};
 
 const promotionChoices = new Map();
 
 let roleIDs = [];
-
 async function getPlayerGames() {
     const chessGamesArray = await gamesCollection.find().toArray();
     const connect4GamesArray = await gamesCollection.find().toArray();
@@ -72,7 +123,7 @@ async function getBalance(message) {
         .setDescription(`You have ${balance} coins.`)
         .setTimestamp();
 
-    return embed
+    return embed;
 }
 
 async function fetchRoleIDs() {
@@ -94,7 +145,7 @@ async function addRoleID(roleId) {
         );
         console.log(`Role ID ${roleId} added to the database.`);
         if (!roleIDs.includes(roleId)) {
-            roleIDs.push(roleId); 
+            roleIDs.push(roleId);
         }
     } catch (error) {
         console.error(`Error adding role ID ${roleId}:`, error);
@@ -131,7 +182,7 @@ async function removeRoleID(roleId) {
     try {
         await roleCollection.deleteOne({ roleId });
         console.log(`Role ID ${roleId} removed from the database.`);
-        roleIDs = roleIDs.filter(id => id !== roleId); 
+        roleIDs = roleIDs.filter(id => id !== roleId);
     } catch (error) {
         console.error(`Error removing role ID ${roleId}:`, error);
     }
@@ -157,6 +208,52 @@ async function chatWithAssistant(userId, userMessage) {
 
     return assistantMessage;
 }
+async function setTimezone(message, location) {
+    const userId = message.author.id;
+
+    if (!location) {
+        return message.channel.send('Please provide a valid location in the format `!tz set [City, Country/State]`.');
+    }
+
+    const normalizedLocation = location.toLowerCase();
+    let timezone = moment.tz.names().find(tz => tz.toLowerCase().includes(normalizedLocation));
+
+    if (!timezone) {
+        timezone = stateTimezones[normalizedLocation];
+    }
+
+    if (!timezone) {
+        return message.channel.send('Invalid timezone or location name. Please provide a valid city, optionally with country or state.');
+    }
+
+    await timezoneCollection.updateOne(
+        { discordID: userId },
+        { $set: { timezone } },
+        { upsert: true }
+    );
+
+    message.channel.send(`Timezone for ${message.author.username} has been set to ${timezone}.`);
+}
+
+async function showTimezone(message) {
+    const userId = message.author.id;
+    const userTimezone = await timezoneCollection.findOne({ discordID: userId });
+
+    if (!userTimezone) {
+        return message.channel.send('You have not set a timezone yet.');
+    }
+
+    const currentTime = moment().tz(userTimezone.timezone).format('HH:mm:ss');
+    const city = userTimezone.timezone.split('/').pop().replace('_', ' ');
+
+    const embed = new Discord.EmbedBuilder()
+        .setColor('#00ff00')
+        .setTitle(`${message.author.username}'s Timezone`)
+        .addFields({ name: 'City', value: city, inline: true })
+        .addFields({ name: 'Current Time', value: currentTime, inline: true })
+
+    await message.channel.send({ embeds: [embed] });
+}
 
 async function drawWithAssistant(userMessage) {
     try {
@@ -168,24 +265,24 @@ async function drawWithAssistant(userMessage) {
         });
         const imageUrl = response.data[0].url;
 
-        
+
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
         return imageData;
     } catch (error) {
         console.error('Error generating or fetching image:', error);
-        return error
+        return error;
     }
 }
 
 async function getChatHistory(userId) {
     const chatHistory = await aiMessages.find({ userId })
-        .sort({ createdAt: -1 })  
-        .limit(7)                 
+        .sort({ createdAt: -1 })
+        .limit(7)
         .toArray();
 
-    chatHistory.reverse();         
+    chatHistory.reverse();
     return chatHistory.map(message => ({ role: message.role, content: message.content }));
 }
 
@@ -199,7 +296,7 @@ client.once('ready', async () => {
     await fetchRoleIDs();
     client.user.setActivity('Managing roles', { type: 'PLAYING' });
 
-    
+
     await gamesCollection.deleteMany({});
     await gamesCollection.deleteMany({});
 
@@ -207,11 +304,11 @@ client.once('ready', async () => {
 
     const guildPromises = client.guilds.cache.map(async (guild) => {
         try {
-            
+
             await guild.members.fetch();
             console.log(`Cached all members in guild: ${guild.name}`);
 
-            
+
             guild.members.cache.forEach((member) => {
                 const userID = member.id;
                 console.log(userID);
@@ -222,14 +319,14 @@ client.once('ready', async () => {
         }
     });
 
-    
+
     await Promise.all(guildPromises);
 
     console.log('All users cached and processed');
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    const roleIDs = ['list', 'of', 'role', 'IDs']; 
+    const roleIDs = ['list', 'of', 'role', 'IDs'];
     const gptRole = newMember.guild.roles.cache.find(role => role.name === 'gpt');
 
     for (const roleId of roleIDs) {
@@ -237,17 +334,17 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         const hasRole = newMember.roles.cache.has(roleId);
 
         if (!hadRole && hasRole) {
-            
+
             console.log(`User ${newMember.id} was granted role ${roleId}`);
         } else if (hadRole && !hasRole) {
-            
+
             console.log(`User ${newMember.id} was removed from role ${roleId}`);
         }
     }
 
     if (gptRole) {
         if (!oldMember.roles.cache.has(gptRole.id) && newMember.roles.cache.has(gptRole.id)) {
-            
+
             const auditLogs = await newMember.guild.fetchAuditLogs({
                 limit: 1,
                 type: Discord.AuditLogEvent.MemberRoleUpdate,
@@ -267,13 +364,13 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
         if (newMember.communicationDisabledUntil) {
             try {
-                
+
                 const auditLogs = await newMember.guild.fetchAuditLogs({
                     limit: 5,
-                    type: Discord.AuditLogEvent.MemberUpdate, 
+                    type: Discord.AuditLogEvent.MemberUpdate,
                 });
 
-                
+
                 const auditEntry = auditLogs.entries
                     .filter(entry => entry.target.id === newMember.id)
                     .find(entry => entry.changes.some(change => change.key === 'communication_disabled_until'));
@@ -290,7 +387,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     )
                     .setTimestamp();
 
-                
+
                 await timeoutLogs.insertOne({
                     guildId: newMember.guild.id,
                     userId: newMember.id,
@@ -300,7 +397,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
                     createdAt: new Date()
                 });
 
-                
+
                 const logChannelDoc = await logChannels.findOne({ guildId: newMember.guild.id });
                 const logChannelId = logChannelDoc ? logChannelDoc.channelId : null;
 
@@ -315,7 +412,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             }
         }
     } else if (oldMember.isCommunicationDisabled() && !newMember.isCommunicationDisabled()) {
-        
+
         try {
             await timeoutLogs.deleteOne({
                 guildId: newMember.guild.id,
@@ -333,7 +430,7 @@ let currentGame = null;
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    const playerGames = await getPlayerGames(); 
+    const playerGames = await getPlayerGames();
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
@@ -535,13 +632,13 @@ client.on('messageCreate', async message => {
             }
             if (!(from.length !== 2 || to.length !== 2)) {
 
-                const playerGames = await getPlayerGames(); 
+                const playerGames = await getPlayerGames();
 
                 console.log(`!move command with gameKey: ${gameKey}`);
                 console.log(`Player games map: ${JSON.stringify([...playerGames])}`);
 
             } else {
-                return await message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4')
+                return await message.channel.send('Invalid Choices, Please provide a move in the format: !move <from> <to>. Example: !move e2 e4');
             }
             if (gameKey) {
                 await chessGame.makeMove(message, `${from}-${to}`, gameKey);
@@ -553,7 +650,7 @@ client.on('messageCreate', async message => {
         } else if (command === '!draw') {
             await chessGame.proposeDraw(message);
         } else if (command === '!promote') {
-            const playerGames = await getPlayerGames(); 
+            const playerGames = await getPlayerGames();
             const gameKey = playerGames.get(message.author.id);
 
             console.log(`!promote command with gameKey: ${gameKey}`);
@@ -581,15 +678,15 @@ client.on('messageCreate', async message => {
                 console.log(stats.stats.all);
                 const embed = new Discord.EmbedBuilder()
                     .setTitle(`Fortnite Stats for ${username}`)
-                    .setThumbnail(stats.image) 
+                    .setThumbnail(stats.image)
                     .addFields(
                         { name: 'Wins', value: `${stats.stats.all.overall.wins}`, inline: true },
                         { name: 'Kills', value: `${stats.stats.all.overall.kills}`, inline: true },
                         { name: 'Matches Played', value: `${stats.stats.all.overall.matches}`, inline: true },
-                        { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true }, 
-                        { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true } 
+                        { name: 'Peak Rank', value: `${stats.battlePass.level}`, inline: true },
+                        { name: 'Current Rank', value: `${stats.battlePass.progress}`, inline: true }
                     )
-                    .setImage('https://example.com/rank-image.png') 
+                    .setImage('https://example.com/rank-image.png')
                     .setColor('#00ff00');
 
                 await message.channel.send({ embeds: [embed] });
@@ -600,7 +697,7 @@ client.on('messageCreate', async message => {
         } else if (command === '!gpt') {
             const userId = message.author.id;
             const now = Date.now();
-            const cooldownAmount = 60 * 1000; 
+            const cooldownAmount = 60 * 1000;
 
             if (cooldowns.gpt.has(userId)) {
                 const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
@@ -624,7 +721,7 @@ client.on('messageCreate', async message => {
         } else if (command === '!gptdraw') {
             const userId = message.author.id;
             const now = Date.now();
-            const cooldownAmount = 10 * 60 * 1000; 
+            const cooldownAmount = 10 * 60 * 1000;
 
             if (cooldowns.gptdraw.has(userId)) {
                 const expirationTime = cooldowns.gptdraw.get(userId) + cooldownAmount;
@@ -656,7 +753,7 @@ client.on('messageCreate', async message => {
                         }
                     }
                     else {
-                        await message.channel.send(base64Image.error.message)
+                        await message.channel.send(base64Image.error.message);
                     }
                 } catch (error) {
                     console.error('Error handling !gptdraw command:', error);
@@ -693,7 +790,7 @@ client.on('messageCreate', async message => {
                     await member.roles.add(role);
                     await message.channel.send(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
 
-                    
+
                     await member.roles.add(role, 'Role assigned by bot command');
                 } else {
                     await message.channel.send('User not found in this guild.');
@@ -721,34 +818,33 @@ client.on('messageCreate', async message => {
             }
 
         } else if (command === '!skull') {
-            let userId = message.author.id
+            let userId = message.author.id;
             if (isAdmin(message.member) || userId === '805009105855971329') {
 
                 let roleId = args[1];
                 if (roleId) {
-                    
+
                     const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
                     if (roleMentionMatch) {
                         roleId = roleMentionMatch[1];
                     }
 
-                    
+
                     if (!/^\d+$/.test(roleId)) {
                         return await message.channel.send('Please provide a valid role ID.');
                     }
 
-                    
+
                     if (roleIDs.includes(roleId)) {
-                        
+
                         await removeRoleID(roleId);
                         return await message.channel.send(`Removed role ID ${roleId} from the list.`);
                     } else {
-                        
+
                         await addRoleID(roleId);
                         return await message.channel.send(`Added role ID ${roleId} to the list.`);
                     }
-                }
-                else {
+                } else {
                     return await message.channel.send('You need to mention a role.');
                 }
             } else {
@@ -774,8 +870,17 @@ client.on('messageCreate', async message => {
             if (message.author.id === '805009105855971329') {
                 await shop.showInventory(message);
             }
+        } else if (command === '!tz') {
+            if (args[1] && args[1].toLowerCase() === 'set') {
+                if (!args[2]) {
+                    return await message.channel.send('Please provide a city in the format `!tz set [City, Country/State]`.');
+                }
+                const city = args.slice(2).join(' ');
+                await setTimezone(message, city);
+            } else {
+                await showTimezone(message);
+            }
         }
-
     }
 });
 
@@ -880,7 +985,6 @@ async function startJoinPhase(message) {
         });
     });
 }
-
 async function sendTemporaryEmbed(channel, description, user) {
     const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
@@ -889,37 +993,37 @@ async function sendTemporaryEmbed(channel, description, user) {
     const joinMessage = await channel.send({ embeds: [embed] });
     setTimeout(() => {
         joinMessage.delete().catch(console.error);
-    }, 5000); 
+    }, 5000);
 }
 
 async function startQuizGame(message, participants) {
     await message.channel.send(`Starting quiz game with: ${Array.from(participants.values()).join(', ')}`);
     await quizGame.startQuiz(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 async function startMathGame(message, participants) {
     await message.channel.send(`Starting math game with: ${Array.from(participants.values()).join(', ')}`);
     await mathGame.startMathGame(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 async function startGreenTea(message, participants) {
     await message.channel.send(`Starting greentea with: ${Array.from(participants.values()).join(', ')}`);
     await greenTea.startGreenTea(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 async function startBlackTea(message, participants) {
     await message.channel.send(`Starting blacktea with: ${Array.from(participants.values()).join(', ')}`);
     await blackTea.startBlackTea(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 async function startHangMan(message, participants) {
     await message.channel.send(`Starting hangman game with: ${Array.from(participants.values()).join(', ')}`);
     await hangMan.startHangMan(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 async function startChessGame(message, participants) {
@@ -929,7 +1033,7 @@ async function startChessGame(message, participants) {
 async function startBlackjackGame(message, participants) {
     await message.channel.send(`Starting blackjack game with: ${Array.from(participants.values()).join(', ')}`);
     await blackjackGame.startBlackjackGame(message, participants);
-    currentGame = null; 
+    currentGame = null;
 }
 
 client.login(process.env.DISCORD_TOKEN);
