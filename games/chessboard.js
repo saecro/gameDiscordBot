@@ -2,7 +2,6 @@ const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
-
 const pieceImages = {
     'P': 'white-pawn.png',
     'N': 'white-knight.png',
@@ -18,19 +17,17 @@ const pieceImages = {
     'k': 'black-king.png',
 };
 
-const squareSize = 80; 
+const squareSize = 80;
 
 async function generateChessboardImage(board, lastMove = null, flip = false) {
     const canvas = createCanvas((8 + 2) * squareSize, (8 + 2) * squareSize);
     const ctx = canvas.getContext('2d');
 
-    
     const darkSquareColor = '#b88762';
     const lightSquareColor = '#edd6b0';
     const highlightDarkSquareColor = '#dcc34b';
     const highlightLightSquareColor = '#f6eb72';
 
-    
     let lastMoveFrom = lastMove ? lastMove.from : null;
     let lastMoveTo = lastMove ? lastMove.to : null;
     if (flip && lastMove) {
@@ -38,7 +35,6 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
         lastMoveTo = String.fromCharCode(104 - (lastMove.to.charCodeAt(0) - 97)) + (9 - parseInt(lastMove.to[1]));
     }
 
-    
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
             const drawX = flip ? 7 - x : x;
@@ -56,14 +52,12 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
         }
     }
 
-    
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, 10 * squareSize, squareSize);
     ctx.fillRect(0, 9 * squareSize, 10 * squareSize, squareSize);
     ctx.fillRect(0, 0, squareSize, 10 * squareSize);
     ctx.fillRect(9 * squareSize, 0, squareSize, 10 * squareSize);
 
-    
     ctx.font = '40px Arial';
     ctx.fillStyle = '#000000';
     ctx.textAlign = 'center';
@@ -76,7 +70,6 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
         ctx.fillText((8 - i).toString(), 9.5 * squareSize, ((flip ? 7 - i : i) + 1.5) * squareSize);
     }
 
-    
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
             const drawX = flip ? 7 - x : x;
@@ -102,7 +95,8 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
         }
     }
     const buffer = canvas.toBuffer('image/png');
-    fs.writeFileSync('chessboard.png', buffer);
+    const base64Image = buffer.toString('base64');
+    return base64Image;
 }
 
 module.exports = generateChessboardImage;

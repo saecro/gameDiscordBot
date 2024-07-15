@@ -24,7 +24,7 @@ const roleCollection = database.collection('RoleIDs');
 const aiMessages = database.collection('AIMessages');
 const gamesCollection = database.collection('Games');
 const timeoutLogs = database.collection('Timeouts');
-
+const logChannel = database.collection('AIChannels')
 const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
@@ -103,6 +103,16 @@ const stateTimezones = {
 const promotionChoices = new Map();
 
 let roleIDs = [];
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    process.exit(1); // Exit the process to trigger PM2 restart
+});
+
 async function getPlayerGames() {
     const chessGamesArray = await gamesCollection.find().toArray();
     const connect4GamesArray = await gamesCollection.find().toArray();
@@ -298,31 +308,27 @@ client.once('ready', async () => {
 
 
     await gamesCollection.deleteMany({});
-    await gamesCollection.deleteMany({});
 
     console.log('Caching all users');
-
     const guildPromises = client.guilds.cache.map(async (guild) => {
-        try {
 
-            await guild.members.fetch();
-            console.log(`Cached all members in guild: ${guild.name}`);
-
-
-            guild.members.cache.forEach((member) => {
-                const userID = member.id;
-                console.log(userID);
-                getOrCreateUserCurrency(userID);
-            });
-        } catch (error) {
-            console.error(`Something happened in guild: ${guild.name}`, error);
-        }
+        await guild.members.fetch();
     });
-
-
     await Promise.all(guildPromises);
 
     console.log('All users cached and processed');
+
+});
+
+client.on('guildCreate', async (guild) => {
+    try {
+
+        await guild.members.fetch();
+        console.log(`Cached all members in guild: ${guild.name}`);
+
+    } catch (error) {
+        console.error(`Something happened in guild: ${guild.name}`, error);
+    }
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -443,6 +449,7 @@ client.on('messageCreate', async message => {
     }
 
     if (command.startsWith('!')) {
+        await getOrCreateUserCurrency(message.author.id); // Ensure the user currency is initialized
         if (command === '!exitgame') {
             if (currentGame) {
                 currentGame.endGame();
@@ -695,6 +702,14 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Error fetching stats. Make sure the username is correct.');
             }
         } else if (command === '!gpt') {
+            const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
+            const gptChannelId = gptChannelDoc ? gptChannelDoc.gptChannelId : null;
+
+            if (!gptChannelId || message.channel.id !== gptChannelId) {
+                const channelMention = gptChannelId ? `<#${gptChannelId}>` : 'the specified channel';
+                return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
+            }
+
             const userId = message.author.id;
             const now = Date.now();
             const cooldownAmount = 60 * 1000;
@@ -719,6 +734,13 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
+            const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
+            const gptChannelId = gptChannelDoc ? gptChannelDoc.gptChannelId : null;
+
+            if (!gptChannelId || message.channel.id !== gptChannelId) {
+                const channelMention = gptChannelId ? `<#${gptChannelId}>` : 'the specified channel';
+                return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
+            }
             const userId = message.author.id;
             const now = Date.now();
             const cooldownAmount = 10 * 60 * 1000;
@@ -798,6 +820,29 @@ client.on('messageCreate', async message => {
                 return;
             } else {
                 return await message.channel.send('Only saecro has permission to use this command.');
+            }
+        } else if (command === '!gptchannel') {
+            if (isAdmin(message.member)) {
+                const mentionedChannel = message.mentions.channels.first();
+                const channelId = mentionedChannel ? mentionedChannel.id : args[1];
+
+                if (!channelId) {
+                    return await message.channel.send('Please mention a valid channel or provide a valid channel ID.');
+                }
+
+                const channel = message.guild.channels.cache.get(channelId);
+                if (!channel || !channel.isTextBased()) {
+                    return await message.channel.send('Invalid channel ID. Please provide a valid text channel ID.');
+                }
+
+                await logChannels.updateOne(
+                    { guildId: message.guild.id },
+                    { $set: { gptChannelId: channel.id, guildId: message.guild.id } },
+                    { upsert: true }
+                );
+                return await message.channel.send(`GPT commands are now restricted to the channel: ${channel}`);
+            } else {
+                return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!timelog') {
             if (isAdmin(message.member)) {

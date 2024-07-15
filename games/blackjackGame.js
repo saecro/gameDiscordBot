@@ -13,6 +13,10 @@ async function getUserCurrency(userId) {
     return user.money;
 }
 
+async function updateUserCurrency(userId, newAmount) {
+    await currencyCollection.updateOne({ discordID: userId }, { $set: { money: newAmount } });
+}
+
 async function askForStake(message, player, playerScores, playerStakes) {
     const initialEmbed = new Discord.EmbedBuilder()
         .setColor('#0099ff')

@@ -75,7 +75,6 @@ async function startQuiz(message, participants) {
                 if (!checkRunning(message.channel.id)) return;
 
                 collected = collected.concat(collectedMessages);
-                await collected.first().react('👍');
                 console.log(`${username} answered with ${collected.first().content}`);
             } catch (err) {
                 console.log(`${username} did not respond in time.`);
