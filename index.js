@@ -5,6 +5,8 @@ const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
 const moment = require('moment-timezone');
 const helpgame = require('./helpgame.js');
+const path = require('path');
+const fs = require('fs');
 
 const cooldowns = {
     gpt: new Map(),
@@ -924,6 +926,20 @@ client.on('messageCreate', async message => {
                 await setTimezone(message, city);
             } else {
                 await showTimezone(message);
+            }
+        } else if (message.content.toLowerCase() === '!frimpong pinpong king kong') {
+            const imagePath = path.join(__dirname, 'teaserimage.jpg');
+
+            // Check if the file exists
+            if (fs.existsSync(imagePath)) {
+                // Create an attachment
+                const attachment = new Discord.AttachmentBuilder(imagePath);
+
+                // Send the attachment in the message channel
+                message.channel.send({ files: [attachment] });
+            } else {
+                // If the file does not exist, send an error message
+                message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
         }
     }
