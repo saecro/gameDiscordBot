@@ -1,0 +1,154 @@
+/* Reset some basic elements */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #1a1a2e; /* Dark blue background */
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+header {
+    width: 100%;
+    padding: 20px;
+    background-color: #282a36; /* Dark purple background */
+    text-align: center;
+    border-bottom: 2px solid #ff79c6; /* Light purple/pink border */
+    position: relative;
+}
+
+header h1 {
+    margin: 0;
+    color: #ff79c6; /* Light purple/pink text */
+}
+
+.logout-button {
+    position: absolute;
+    right: 20px;
+    top: 20px;
+    padding: 10px 20px;
+    color: #ff79c6; /* Light purple/pink text */
+    background-color: #282a36; /* Dark purple fill */
+    border: 2px solid #ff79c6; /* Light purple/pink border */
+    border-radius: 5px;
+    text-decoration: none;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.logout-button:hover {
+    background-color: #ff79c6; /* Light purple/pink background on hover */
+    color: #282a36; /* Dark purple text on hover */
+}
+
+main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 20px;
+    overflow-y: auto; /* Allow vertical scrolling only within the main content */
+}
+
+main h2 {
+    color: #ff79c6; /* Light purple/pink text */
+    margin-bottom: 20px;
+}
+
+.server-card {
+    position: relative;
+    margin: 20px;
+    padding: 40px 20px 20px;
+    background-color: #282a36; /* Dark purple background */
+    border: 2px solid #ff79c6; /* Light purple/pink border */
+    border-radius: 15px;
+    text-align: center;
+    width: 300px;
+    overflow: hidden;
+    display: inline-block;
+}
+
+.server-card .background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    filter: blur(10px);
+    z-index: -1;
+    border-radius: 15px;
+    opacity: 0.5;
+}
+
+.server-card .icon {
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    z-index: 1;
+    background-color: #282a36;
+}
+
+.server-card .icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.server-card .content {
+    margin-top: 50px;
+    color: #ff79c6; /* Light purple/pink text */
+}
+
+.server-card .content h3 {
+    margin: 10px 0;
+}
+
+.server-card .content p {
+    margin: 5px 0;
+    color: #a0a0a0; /* Light grey text */
+}
+
+.server-card .go-button {
+    padding: 10px 20px;
+    color: #282a36; /* Dark purple text */
+    background-color: #ff79c6; /* Light purple/pink background */
+    border: none;
+    border-radius: 5px;
+    text-decoration: none;
+    transition: background-color 0.3s, color 0.3s;
+    display: inline-block;
+}
+
+.server-card .go-button:hover {
+    background-color: #282a36; /* Dark purple background on hover */
+    color: #ff79c6; /* Light purple/pink text on hover */
+}
+
+footer {
+    width: 100%;
+    padding: 10px;
+    background-color: #282a36; /* Dark purple background */
+    text-align: center;
+    border-top: 2px solid #ff79c6; /* Light purple/pink border */
+    color: #a0a0a0; /* Light grey footer text */
+}

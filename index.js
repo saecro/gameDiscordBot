@@ -1,12 +1,19 @@
+const express = require('express');
+const session = require('express-session');
+const passport = require('passport');
+const { MongoClient } = require('mongodb');
+const MongoStore = require('connect-mongo');
 const Discord = require('discord.js');
 require('dotenv').config();
+const http = require('http');
 const axios = require('axios');
-const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
 const moment = require('moment-timezone');
 const helpgame = require('./helpgame.js');
 const path = require('path');
 const fs = require('fs');
+const socketIo = require('socket.io');
+
 
 const cooldowns = {
     gpt: new Map(),
@@ -17,8 +24,52 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-const mongo = new MongoClient(process.env.MONGO_URI);
-const database = mongo.db('discordGameBot');
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// MongoDB Connection
+const mongoClient = new MongoClient(process.env.MONGO_URI);
+mongoClient.connect().then(client => {
+    console.log('Connected to MongoDB');
+});
+
+// Session Management
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({ client: mongoClient })
+}));
+
+// Passport Configuration
+require('./passport')(passport);
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.set('view engine', 'ejs');
+app.use(express.static('public')); // Ensure Express serves static files from the public directory
+
+app.use('/auth', require('./routes/auth'));
+app.use('/dashboard', require('./routes/dashboard'));
+
+app.get('/', (req, res) => {
+    res.render('index', { user: req.user });
+});
+
+// Start watching botGuilds collection for changes
+const startWatching = require('./watchBotGuilds');
+startWatching(io);
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+
+// Initialize Discord Client
+const database = mongoClient.db('discordGameBot');
+const validGptRoleIds = database.collection('validGptRoleIds');
 const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
 const logChannels = database.collection('LogChannels');
@@ -27,6 +78,9 @@ const aiMessages = database.collection('AIMessages');
 const gamesCollection = database.collection('Games');
 const timeoutLogs = database.collection('Timeouts');
 const logChannel = database.collection('AIChannels')
+const botServers = database.collection('botGuilds');
+app.locals.db = database;
+
 const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
@@ -138,8 +192,24 @@ async function getBalance(message) {
     return embed;
 }
 
+async function isValidGptRoleId(userId) {
+    const validId = await validGptRoleIds.findOne({ userId });
+    return validId !== null;
+}
+
+async function addGptRoleId(userId) {
+    await validGptRoleIds.updateOne(
+        { userId },
+        { $set: { userId } },
+        { upsert: true }
+    );
+}
+
+async function removeGptRoleId(userId) {
+    await validGptRoleIds.deleteOne({ userId });
+}
+
 async function fetchRoleIDs() {
-    await mongo.connect();
     const documents = await roleCollection.find({}).toArray();
     roleIDs = documents.map(doc => doc.roleId);
 }
@@ -331,7 +401,29 @@ client.on('guildCreate', async (guild) => {
     } catch (error) {
         console.error(`Something happened in guild: ${guild.name}`, error);
     }
+    await fetchBotGuilds();
 });
+
+async function fetchBotGuilds() {
+    await botServers.deleteMany({});
+
+    const guildsData = await Promise.all(client.guilds.cache.map(async (guild) => {
+        // Fetch guild data including icon and banner
+        const guildData = await client.guilds.fetch(guild.id, { withCounts: true });
+        const iconURL = guildData.iconURL({ format: 'png', dynamic: true, size: 1024 });
+        const bannerURL = guildData.bannerURL({ format: 'png', dynamic: true, size: 1024 });
+
+        return {
+            id: guild.id,
+            name: guild.name,
+            icon: iconURL,
+            banner: bannerURL
+        };
+    }));
+
+    await collection.insertMany(guildsData);
+    console.log('Bot guilds saved to database:', guildsData);
+}
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const roleIDs = ['list', 'of', 'role', 'IDs'];
@@ -713,6 +805,12 @@ client.on('messageCreate', async message => {
             }
 
             const userId = message.author.id;
+
+            // Check if user is in validGptRoleIds collection
+            if (!await isValidGptRoleId(userId)) {
+                return await message.channel.send('You do not have permission to use this command.');
+            }
+
             const now = Date.now();
             const cooldownAmount = 60 * 1000;
 
@@ -720,7 +818,7 @@ client.on('messageCreate', async message => {
                 const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
                 if (now < expirationTime && userId !== '805009105855971329') {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return await message.channel.send(`please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
+                    return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
                 }
             }
 
@@ -736,14 +834,21 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
-            const gptChannelId = gptChannelDoc ? gptChannelDoc.gptChannelId : null;
-
-            if (!gptChannelId || message.channel.id !== gptChannelId) {
-                const channelMention = gptChannelId ? `<#${gptChannelId}>` : 'the specified channel';
-                return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
-            }
             const userId = message.author.id;
+            const valid = isValidGptRoleId(userId)
+            const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
+            const gptDrawChannelId = gptChannelDoc ? gptChannelDoc.gptDrawChannelId : null;
+
+            if (!gptDrawChannelId || message.channel.id !== gptDrawChannelId) {
+                const channelMention = gptDrawChannelId ? `<#${gptDrawChannelId}>` : 'the specified channel';
+                return await message.channel.send(`The \`!gptdraw\` command can only be used in ${channelMention}.`);
+            }
+
+            // Check if user is in validGptRoleIds collection
+            if (!await isValidGptRoleId(userId)) {
+                return await message.channel.send('You do not have permission to use this command. Ask Saecro for permission.');
+            }
+
             const now = Date.now();
             const cooldownAmount = 10 * 60 * 1000;
 
@@ -792,39 +897,25 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (message.content.startsWith('!gptrole')) {
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return await message.channel.send('Please mention a user to assign the GPT role.');
+            }
+
+            const isValidUser = await validGptRoleIds.findOne({ userId: mentionedUser.id });
+
+            if (isValidUser) {
+                await removeGptRoleId(mentionedUser.id);
+                await message.channel.send(`Removed ${mentionedUser.tag} from the list of valid GPT role users.`);
+            } else {
+                await addGptRoleId(mentionedUser.id);
+                await message.channel.send(`Added ${mentionedUser.tag} to the list of valid GPT role users.`);
+            }
+            return;
+        } else if (command === '!gptchannel') {
             const userId = message.author.id;
 
-            if (userId === '805009105855971329') {
-                const mentionedUser = message.mentions.users.first();
-                if (!mentionedUser) {
-                    return await message.channel.send('Please mention a user to assign the role to.');
-                }
-
-                const guild = message.guild;
-                let role = guild.roles.cache.find(role => role.name === "gpt");
-
-                if (!role) {
-                    role = await guild.roles.create({
-                        name: 'gpt',
-                    });
-                }
-
-                const member = guild.members.cache.get(mentionedUser.id);
-                if (member) {
-                    await member.roles.add(role);
-                    await message.channel.send(`Assigned the "gpt" role to ${mentionedUser.tag}.`);
-
-
-                    await member.roles.add(role, 'Role assigned by bot command');
-                } else {
-                    await message.channel.send('User not found in this guild.');
-                }
-                return;
-            } else {
-                return await message.channel.send('Only saecro has permission to use this command.');
-            }
-        } else if (command === '!gptchannel') {
-            if (isAdmin(message.member)) {
+            if (isAdmin(message.member) || userId === '805009105855971329') {
                 const mentionedChannel = message.mentions.channels.first();
                 const channelId = mentionedChannel ? mentionedChannel.id : args[1];
 
@@ -843,6 +934,31 @@ client.on('messageCreate', async message => {
                     { upsert: true }
                 );
                 return await message.channel.send(`GPT commands are now restricted to the channel: ${channel}`);
+            } else {
+                return await message.channel.send('You do not have permission to use this command.');
+            }
+        } else if (command === '!gptdrawchannel') {
+            const userId = message.author.id;
+
+            if (isAdmin(message.member) || userId === '805009105855971329') {
+                const mentionedChannel = message.mentions.channels.first();
+                const channelId = mentionedChannel ? mentionedChannel.id : args[1];
+
+                if (!channelId) {
+                    return await message.channel.send('Please mention a valid channel or provide a valid channel ID.');
+                }
+
+                const channel = message.guild.channels.cache.get(channelId);
+                if (!channel || !channel.isTextBased()) {
+                    return await message.channel.send('Invalid channel ID. Please provide a valid text channel ID.');
+                }
+
+                await logChannels.updateOne(
+                    { guildId: message.guild.id },
+                    { $set: { gptDrawChannelId: channel.id, guildId: message.guild.id } },
+                    { upsert: true }
+                );
+                return await message.channel.send(`GPT Draw commands are now restricted to the channel: ${channel}`);
             } else {
                 return await message.channel.send('You do not have permission to use this command.');
             }
@@ -927,7 +1043,7 @@ client.on('messageCreate', async message => {
             } else {
                 await showTimezone(message);
             }
-        } else if (message.content.toLowerCase() === '!frimpong pinpong king kong') {
+        } else if (message.content.toLowerCase() === '!frimpong ping pong king kong') {
             const imagePath = path.join(__dirname, 'teaserimage.jpg');
 
             // Check if the file exists

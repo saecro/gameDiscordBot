@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage <%= guild.name %></title>
+</head>
+<body>
+    <h1>Manage <%= guild.name %></h1>
+    <form action="/dashboard/<%= guild.id %>" method="post">
+        <!-- Add your configuration fields here -->
+        <div>
+            <label for="prefix">Prefix:</label>
+            <input type="text" id="prefix" name="prefix" value="<%= guildConfig ? guildConfig.prefix : '!' %>">
+        </div>
+        <button type="submit">Save</button>
+    </form>
+    <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>

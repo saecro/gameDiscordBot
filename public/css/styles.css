@@ -1,0 +1,45 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #1a1a2e; /* Dark blue background */
+    color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.container {
+    text-align: center;
+}
+
+h1 {
+    color: #e0e0e0; /* Light grey text */
+}
+
+.login-button {
+    display: inline-block;
+    padding: 15px 30px;
+    margin-top: 20px;
+    font-size: 18px;
+    color: #ff79c6; /* Light purple/pink text */
+    background-color: #282a36; /* Dark purple fill */
+    border: 2px solid #ff79c6; /* Light purple/pink outline */
+    border-radius: 5px;
+    text-decoration: none;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.login-button:hover {
+    background-color: #ff79c6; /* Light purple/pink background on hover */
+    color: #282a36; /* Dark purple text on hover */
+}
+
+footer {
+    position: absolute;
+    bottom: 10px;
+    width: 100%;
+    text-align: center;
+    color: #a0a0a0; /* Light grey footer text */
+}

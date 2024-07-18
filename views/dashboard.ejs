@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+    <header>
+        <h1>Dashboard</h1>
+        <a href="/auth/logout" class="logout-button">Logout</a>
+    </header>
+    <main>
+        <h2>Your Servers</h2>
+        <% if (userGuilds.length > 0) { %>
+            <ul>
+                <% userGuilds.forEach(guild => { %>
+                    <li class="server-card">
+                        <div class="background" style="background-image: url('<%= guild.banner ? guild.banner : guild.icon %>');"></div>
+                        <div class="icon">
+                            <img src="<%= guild.icon %>" alt="<%= guild.name %>">
+                        </div>
+                        <div class="content">
+                            <h3><%= guild.name %></h3>
+                            <p>Owner</p>
+                            <a href="/dashboard/<%= guild.id %>" class="go-button">Go</a>
+                        </div>
+                    </li>
+                <% }) %>
+            </ul>
+        <% } else { %>
+            <p>No servers found where you have administrative privileges and the bot is present.</p>
+        <% } %>
+    </main>
+    <footer>
+        <p>© 2024 Discord Bot Dashboard</p>
+    </footer>
+</body>
+</html>
