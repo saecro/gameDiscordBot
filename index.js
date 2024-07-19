@@ -73,6 +73,7 @@ async function getAura(userId) {
 // Initialize Discord Client
 const database = mongoClient.db('discordGameBot');
 const blockedCommandsCollection = database.collection('blockedCommands');
+const toggledCommandsCollection = database.collection('toggledCommands');
 const validGptRoleIds = database.collection('validGptRoleIds');
 const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
@@ -185,18 +186,55 @@ async function getPlayerGames() {
 }
 
 async function getBalance(message) {
-    const userId = message.author.id;
-    const balance = await getOrCreateUserCurrency(userId);
+    let userId = message.author.id;
+    let name = message.author.username;
+    let mentionedUser = message.mentions.users.first();
 
+    if (mentionedUser) {
+        userId = mentionedUser.id;
+        name = mentionedUser.username;
+    }
+
+    const balance = await getOrCreateUserCurrency(userId);
     const formattedBalance = formatBalance(balance.money);
 
     const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
-        .setTitle(`${message.author.username}'s Balance`)
+        .setTitle(`${name}'s Balance`)
         .setDescription(`You have ${formattedBalance} coins.\n\n\n${balance.money}`)
         .setTimestamp();
 
     return embed;
+}
+
+async function leaderboard(message) {
+    const currencyCollection = database.collection('currency');
+
+    // Fetch the top 10 users with the highest balance
+    const topUsers = await currencyCollection.find().sort({ money: -1 }).limit(10).toArray();
+
+    // Create the leaderboard embed
+    const embed = new Discord.EmbedBuilder()
+        .setColor('#ffd700')
+        .setTitle('Leaderboard - Top 10 Richest Users')
+        .setTimestamp();
+
+    // Fetch user details from Discord
+    for (let i = 0; i < topUsers.length; i++) {
+        const user = await message.client.users.fetch(topUsers[i].discordID);
+        const username = user ? user.username : 'Unknown User';
+        embed.addFields({
+            name: `${i + 1}. ${username}`,
+            value: `${formatBalance(topUsers[i].money)} coins`,
+        });
+    }
+
+    return message.channel.send({ embeds: [embed] });
+}
+
+async function isCommandToggledOff(command) {
+    const toggledCommand = await toggledCommandsCollection.findOne({ command });
+    return !!toggledCommand;
 }
 
 function formatBalance(balance) {
@@ -252,7 +290,7 @@ async function fetchRoleIDs() {
 }
 
 function isAdmin(member) {
-    if(member.id ==='805009105855971329') return true
+    if (member.id === '805009105855971329') return true
     return member.permissions.has(Discord.PermissionsBitField.Flags.Administrator);
 }
 
@@ -277,7 +315,7 @@ async function getOrCreateUserCurrency(userId) {
     if (!user) {
         user = {
             discordID: userId,
-            money: 100,
+            money: 1000,
             lastDaily: 0,
             lastWeekly: 0
         };
@@ -602,6 +640,9 @@ client.on('messageCreate', async message => {
             break;
         }
     }
+    if (await isCommandToggledOff(command)) {
+        return message.channel.send(`The command \`${command}\` is currently disabled.`);
+    }
 
     if (command.startsWith('!')) {
         const blockedChannelCommands = await blockedCommandsCollection.findOne({ channelId: message.channel.id });
@@ -610,7 +651,30 @@ client.on('messageCreate', async message => {
         }
 
         await getOrCreateUserCurrency(message.author.id); // Ensure the user currency is initialized
-        if (command === '!exitgame') {
+        if (command === '!switch') {
+            if (!isAdmin(message.member)) {
+                return message.channel.send('You do not have permission to use this command.');
+            }
+
+            const commandsToToggle = args.slice(1);
+
+            if (commandsToToggle.length === 0) {
+                return message.channel.send('Please provide the commands to toggle.');
+            }
+
+            for (const cmd of commandsToToggle) {
+                const toggledCommand = await toggledCommandsCollection.findOne({ command: cmd });
+
+                if (toggledCommand) {
+                    await toggledCommandsCollection.deleteOne({ command: cmd });
+                    await message.channel.send(`The command \`${cmd}\` has been enabled.`);
+                } else {
+                    await toggledCommandsCollection.insertOne({ command: cmd });
+                    await message.channel.send(`The command \`${cmd}\` has been disabled.`);
+                }
+            }
+            return;
+        } else if (command === '!exitgame') {
             if (currentGame) {
                 currentGame.endGame();
                 currentGame = null;
@@ -788,6 +852,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please enter a valid bet amount. `!slots 100`');
             }
         } else if (command === '!balance') {
+
             const embed = await getBalance(message);
             await message.channel.send({ embeds: [embed] });
         } else if (command === '!move') {
@@ -1124,30 +1189,30 @@ client.on('messageCreate', async message => {
                 // If the file does not exist, send an error message
                 message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
-        } else if (command === '!rape') {
-            // Get the user mentioned in the message
-            let user = message.mentions.users.first();
+            } else if (command === '!rape') {
+                // Get the user mentioned in the message
+                let user = message.mentions.users.first();
 
-            // If a user is mentioned, send a rape message with an embed
-            if (user) {
-                if (user.id !== '805009105855971329') {
-                    const randomGifPath = getRandomGif();
-                    const embed = new Discord.EmbedBuilder()
-                        .setDescription(`<@${user.id}> has been raped!`)
-                        .setImage(`attachment://${path.basename(randomGifPath)}`)
-                        .setColor('#FF0000'); // Optional: Set the color of the embed
+                // If a user is mentioned, send a rape message with an embed
+                if (user) {
+                    if (user.id !== '805009105855971329') {
+                        const randomGifPath = getRandomGif();
+                        const embed = new Discord.EmbedBuilder()
+                            .setDescription(`<@${user.id}> has been raped!`)
+                            .setImage(`attachment://${path.basename(randomGifPath)}`)
+                            .setColor('#FF0000'); // Optional: Set the color of the embed
 
-                    message.channel.send({
-                        embeds: [embed],
-                        files: [{
-                            attachment: randomGifPath,
-                            name: path.basename(randomGifPath)
-                        }]
-                    });
-                } else {
-                    message.channel.send(`${user.username} cannot be raped`);
+                        message.channel.send({
+                            embeds: [embed],
+                            files: [{
+                                attachment: randomGifPath,
+                                name: path.basename(randomGifPath)
+                            }]
+                        });
+                    } else {
+                        message.channel.send(`${user.username} cannot be raped`);
+                    }
                 }
-            }
         } else if (command === '!aura') {
             console.log('getting aura')
             const aura = await getAura(message.author.id);
@@ -1166,7 +1231,6 @@ client.on('messageCreate', async message => {
             }
 
             const userCurrency = await currencyCollection.findOne({ discordID: message.author.id });
-            const mentionedUserCurrency = await getOrCreateUserCurrency(mentionedUser.id);
 
             if (!userCurrency || userCurrency.money < amount) {
                 return await message.channel.send('You do not have enough money to donate that amount.');
@@ -1275,7 +1339,31 @@ client.on('messageCreate', async message => {
                 console.error('Error writing notes file:', error);
                 await message.channel.send('Failed to save your note.');
             }
+        } else if (command === '!resetmoney') {
+            if (message.author.id === '805009105855971329') {
+                currencyCollection.deleteMany({})
+                return message.channel.send('deleted all records on Database.')
+            }
+        } else if (command === '!give') {
+            const userId = message.author.id;
+            if (userId === '805009105855971329') {
+                const mentionedUser = message.mentions.users.first();
+                const amount = parseInt(args[2], 10);
+
+                if (!mentionedUser || isNaN(amount) || amount <= 0) {
+                    return await message.channel.send('Please mention a valid user and enter a valid amount.');
+                }
+                await currencyCollection.updateOne(
+                    { discordID: mentionedUser.id },
+                    { $inc: { money: amount } }
+                );
+
+                await message.channel.send(`Successfully donated ${amount} coins to ${mentionedUser.username}.`);
+            }
+        } else if (command === '!leaderboard') {
+            await leaderboard(message);
         }
+
     }
 });
 
