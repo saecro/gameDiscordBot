@@ -1,8 +1,8 @@
 const { Chess } = require('chess.js');
 const generateChessboardImage = require('./chessboard.js');
 const { MongoClient } = require('mongodb');
+const { AttachmentBuilder } = require('discord.js');
 require('dotenv').config();
-
 
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
@@ -12,27 +12,30 @@ const activeGames = new Map();
 const drawOffers = new Map();
 const promotionChoices = new Map();
 
-async function startChessGame(message, participants) {
+function setupDebugBoard() {
+    const chess = new Chess();
+    chess.clear(); // Clear the board
+    chess.put({ type: 'k', color: 'w' }, 'd6'); // Place a white pawn at d7
+    chess.put({ type: 'p', color: 'w' }, 'd7'); // Place a white pawn at d7
+    chess.put({ type: 'p', color: 'b' }, 'e2'); // Place a black pawn at e2
+    chess.put({ type: 'k', color: 'b' }, 'e3'); // Place a black pawn at e2
+    return chess;
+}
+
+async function startChessGame(message, participants, debug = false) {
     const authorId = message.author.id;
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
 
-    console.log(`Starting chess game with gameKey: ${gameKey}`);
-    console.log(`Author ID: ${authorId}, Opponent ID: ${opponentId}`);
-
     if (await isPlayerInGame(authorId) || await isPlayerInGame(opponentId)) {
-        console.log(`One or both players are already in a game. Author in game: ${await isPlayerInGame(authorId)}, Opponent in game: ${await isPlayerInGame(opponentId)}`);
         await message.channel.send('One or both players are already in a game.');
         return;
     }
 
-    const chess = new Chess();
+    const chess = debug ? setupDebugBoard() : new Chess();
     activeGames.set(gameKey, chess);
     await chessGames.insertOne({ playerId: authorId, gameKey });
     await chessGames.insertOne({ playerId: opponentId, gameKey });
-
-    console.log(`Active games: ${JSON.stringify([...activeGames.keys()])}`);
-    console.log(`Player games: ${JSON.stringify(await getPlayerGames())}`);
 
     await message.channel.send(`Chess game started between <@${authorId}> (white) and <@${opponentId}> (black).`);
     await sendChessboardImage(message.channel, chess.board());
@@ -49,40 +52,35 @@ async function getPlayerGameKey(playerId) {
 
 async function sendChessboardImage(channel, board, lastMove = null, flip = false) {
     try {
-        await generateChessboardImage(board, lastMove, flip);
-        await channel.send({ files: ['./chessboard.png'] });
+        const base64Image = await generateChessboardImage(board, lastMove, flip);
+        const buffer = Buffer.from(base64Image, 'base64');
+        const attachment = new AttachmentBuilder(buffer, 'chessboard.png');
+        await channel.send({ files: [attachment] });
     } catch (error) {
         console.error('Error generating or sending chessboard image:', error);
     }
 }
 
+// chessgame.js
 async function makeMove(message, move, promotion = 'q') {
     try {
         const playerId = message.author.id;
         let gameKey = await getPlayerGameKey(playerId);
-
-        console.log(`makeMove called with gameKey: ${gameKey}`);
-        console.log(`Player ID: ${playerId}`);
 
         let chess = activeGames.get(gameKey);
         if (!chess) {
             const swappedGameKey = gameKey.split('-').reverse().join('-');
             chess = activeGames.get(swappedGameKey);
             if (chess) {
-                console.log(`Game found with swappedGameKey: ${swappedGameKey}`);
                 gameKey = swappedGameKey;
             } else {
-                console.log(`No game found for gameKey: ${gameKey} or swappedGameKey: ${swappedGameKey}`);
                 await message.channel.send('No game in progress.');
                 return;
             }
         }
 
-        const opponentId = gameKey.split('-').find(id => id !== playerId);
         const currentPlayerColor = chess.turn();
         const currentPlayerId = gameKey.split('-')[currentPlayerColor === 'w' ? 0 : 1];
-
-        console.log(`Current player ID: ${currentPlayerId}, Current player color: ${currentPlayerColor}`);
 
         if (message.author.id !== currentPlayerId) {
             await message.channel.send('It is not your turn to make a move.');
@@ -92,7 +90,6 @@ async function makeMove(message, move, promotion = 'q') {
         const from = move.slice(0, 2);
         const to = move.slice(3, 5);
 
-        
         const possibleMoves = chess.moves({ square: from, verbose: true });
         const isValidMove = possibleMoves.some(m => m.to === to);
 
@@ -105,7 +102,6 @@ async function makeMove(message, move, promotion = 'q') {
             (from[1] === '2' && to[1] === '1' && currentPlayerColor === 'b');
 
         if (isPromotionMove && !promotionChoices.has(gameKey)) {
-            
             promotionChoices.set(gameKey, { from, to });
             await message.channel.send(`<@${currentPlayerId}>, your pawn can be promoted! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)`);
             return;
@@ -124,14 +120,7 @@ async function makeMove(message, move, promotion = 'q') {
         const result = chess.move({ from, to, promotion });
         if (result) {
             await message.channel.send(`Move made: ${move}`);
-
-            
-            const previousImage = message.channel.messages.cache.find(msg => msg.attachments.first()?.url.includes('chessboard.png'));
-            if (previousImage) {
-                await previousImage.delete();
-            }
-
-            const flip = chess.turn() === 'b'; 
+            const flip = chess.turn() === 'b';
             await sendChessboardImage(message.channel, chess.board(), result, flip);
 
             if (chess.isCheckmate()) {
@@ -148,14 +137,6 @@ async function makeMove(message, move, promotion = 'q') {
                     messageText += ` <@${opponentId}>, your king is in check!`;
                 }
 
-                const moves = chess.moves({ verbose: true });
-                const pinnedMoves = moves.filter(m => m.flags.includes('p'));
-
-                if (pinnedMoves.length > 0) {
-                    const pinnedPieces = pinnedMoves.map(m => m.piece).join(', ');
-                    messageText += ` Some pieces (${pinnedPieces}) are pinned to protect the king.`;
-                }
-
                 await message.channel.send(messageText);
             }
         } else {
@@ -167,8 +148,8 @@ async function makeMove(message, move, promotion = 'q') {
     }
 }
 
+
 async function endChessGameByGameKey(gameKey) {
-    console.log(`Ending chess game with gameKey: ${gameKey}`);
     activeGames.delete(gameKey);
     drawOffers.delete(gameKey);
     promotionChoices.delete(gameKey);
@@ -181,13 +162,9 @@ async function endChessGame(message, participants) {
     const opponentId = Array.from(participants.keys()).find(id => id !== authorId);
     const gameKey = `${authorId}-${opponentId}`;
 
-    console.log(`Ending chess game with participants: ${authorId}, ${opponentId}`);
-
     await endChessGameByGameKey(gameKey);
     const swappedGameKey = gameKey.split('-').reverse().join('-');
     await endChessGameByGameKey(swappedGameKey);
-
-    console.log(`Player games map after ending game: ${JSON.stringify(await getPlayerGames())}`);
 
     await message.channel.send('The chess game has been ended.');
 }
@@ -195,8 +172,6 @@ async function endChessGame(message, participants) {
 async function resignGame(message) {
     const playerId = message.author.id;
     const gameKey = await getPlayerGameKey(playerId);
-
-    console.log(`Resigning game for playerId: ${playerId}, gameKey: ${gameKey}`);
 
     if (!gameKey) {
         await message.channel.send('You are not currently in a game.');
@@ -211,8 +186,6 @@ async function resignGame(message) {
 async function proposeDraw(message) {
     const playerId = message.author.id;
     const gameKey = await getPlayerGameKey(playerId);
-
-    console.log(`Proposing draw for playerId: ${playerId}, gameKey: ${gameKey}`);
 
     if (!gameKey) {
         await message.channel.send('You are not currently in a game.');
@@ -229,12 +202,25 @@ async function proposeDraw(message) {
     }
 }
 
-async function getPlayerGames() {
-    const games = await chessGames.find().toArray();
-    return games.reduce((map, game) => {
-        map.set(game.playerId, game.gameKey);
-        return map;
-    }, new Map());
+async function promote(message, choice) {
+    const playerId = message.author.id;
+    const gameKey = await getPlayerGameKey(playerId);
+
+    if (!gameKey || !promotionChoices.has(gameKey)) {
+        await message.channel.send('No pawn to promote or invalid game.');
+        return;
+    }
+
+    const validChoices = ['q', 'r', 'b', 'n'];
+    if (!validChoices.includes(choice.toLowerCase())) {
+        await message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
+        return;
+    }
+
+    const promotionData = promotionChoices.get(gameKey);
+    promotionChoices.set(gameKey, { ...promotionData, choice: choice.toLowerCase() });
+
+    await makeMove(message, `${promotionData.from}-${promotionData.to}`, choice.toLowerCase());
 }
 
 module.exports = {
@@ -242,5 +228,7 @@ module.exports = {
     makeMove,
     endChessGame,
     resignGame,
-    proposeDraw
+    proposeDraw,
+    setupDebugBoard,
+    promote,
 };

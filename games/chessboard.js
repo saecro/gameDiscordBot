@@ -20,6 +20,7 @@ const pieceImages = {
 const squareSize = 80;
 
 async function generateChessboardImage(board, lastMove = null, flip = false) {
+    console.log('Board state:', board); // Log the board state
     const canvas = createCanvas((8 + 2) * squareSize, (8 + 2) * squareSize);
     const ctx = canvas.getContext('2d');
 

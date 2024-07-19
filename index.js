@@ -3,6 +3,7 @@ const session = require('express-session');
 const passport = require('passport');
 const { MongoClient } = require('mongodb');
 const MongoStore = require('connect-mongo');
+const { exec } = require('child_process')
 const Discord = require('discord.js');
 require('dotenv').config();
 const http = require('http');
@@ -13,7 +14,7 @@ const helpgame = require('./helpgame.js');
 const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
-
+const saecro = '805009105855971329';
 const cooldowns = {
     gpt: new Map(),
     gptdraw: new Map()
@@ -82,9 +83,10 @@ const roleCollection = database.collection('RoleIDs');
 const aiMessages = database.collection('AIMessages');
 const gamesCollection = database.collection('Games');
 const timeoutLogs = database.collection('Timeouts');
-const logChannel = database.collection('AIChannels')
+const logChannel = database.collection('AIChannels');
 const botServers = database.collection('botGuilds');
 const auraCollection = database.collection('aura');
+const blacklistCollection = database.collection('blacklist');
 app.locals.db = database;
 
 const slotMachineGame = require('./games/slotMachineGame.js');
@@ -232,8 +234,8 @@ async function leaderboard(message) {
     return message.channel.send({ embeds: [embed] });
 }
 
-async function isCommandToggledOff(command) {
-    const toggledCommand = await toggledCommandsCollection.findOne({ command });
+async function isCommandToggledOff(command, guildId) {
+    const toggledCommand = await toggledCommandsCollection.findOne({ command, guildId });
     return !!toggledCommand;
 }
 
@@ -290,7 +292,7 @@ async function fetchRoleIDs() {
 }
 
 function isAdmin(member) {
-    if (member.id === '805009105855971329') return true
+    if (member.id === saecro) return true;
     return member.permissions.has(Discord.PermissionsBitField.Flags.Administrator);
 }
 
@@ -368,8 +370,8 @@ async function chatWithAssistant(userId, userMessage) {
 
     return assistantMessage;
 }
-async function setTimezone(message, location) {
-    const userId = message.author.id;
+async function setTimezone(message, location, userId) {
+
 
     if (!location) {
         return message.channel.send('Please provide a valid location in the format `!tz set [City, Country/State]`.');
@@ -395,8 +397,8 @@ async function setTimezone(message, location) {
     message.channel.send(`Timezone for ${message.author.username} has been set to ${timezone}.`);
 }
 
-async function showTimezone(message) {
-    const userId = message.author.id;
+async function showTimezone(message, userId) {
+
     const userTimezone = await timezoneCollection.findOne({ discordID: userId });
 
     if (!userTimezone) {
@@ -410,7 +412,7 @@ async function showTimezone(message) {
         .setColor('#00ff00')
         .setTitle(`${message.author.username}'s Timezone`)
         .addFields({ name: 'City', value: city, inline: true })
-        .addFields({ name: 'Current Time', value: currentTime, inline: true })
+        .addFields({ name: 'Current Time', value: currentTime, inline: true });
 
     await message.channel.send({ embeds: [embed] });
 }
@@ -622,17 +624,18 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             console.error(`Error removing timeout log for guild ${newMember.guild.id}:`, error);
         }
     }
-})
+});
 
 let currentGame = null;
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
-
+    const userId = message.author.id;
     const playerGames = await getPlayerGames();
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
+    const guildId = message.guild.id;
 
     for (const roleId of roleIDs) {
         if (message.member.roles.cache.has(roleId)) {
@@ -640,14 +643,20 @@ client.on('messageCreate', async message => {
             break;
         }
     }
-    if (await isCommandToggledOff(command)) {
-        return message.channel.send(`The command \`${command}\` is currently disabled.`);
+
+    if (await isCommandToggledOff(command, guildId)) {
+        return message.channel.send(`The command \`${command}\` is currently disabled in this server.`);
+    }
+
+    const blacklistedUser = await blacklistCollection.findOne({ userId: userId });
+    if (blacklistedUser) {
+        return message.channel.send(`You are blacklisted from using commands.`);
     }
 
     if (command.startsWith('!')) {
         const blockedChannelCommands = await blockedCommandsCollection.findOne({ channelId: message.channel.id });
         if (blockedChannelCommands && blockedChannelCommands.blockedCommands.includes(command)) {
-            return false
+            return false;
         }
 
         await getOrCreateUserCurrency(message.author.id); // Ensure the user currency is initialized
@@ -663,15 +672,35 @@ client.on('messageCreate', async message => {
             }
 
             for (const cmd of commandsToToggle) {
-                const toggledCommand = await toggledCommandsCollection.findOne({ command: cmd });
+                const toggledCommand = await toggledCommandsCollection.findOne({ command: cmd, guildId });
 
                 if (toggledCommand) {
-                    await toggledCommandsCollection.deleteOne({ command: cmd });
-                    await message.channel.send(`The command \`${cmd}\` has been enabled.`);
+                    await toggledCommandsCollection.deleteOne({ command: cmd, guildId });
+                    await message.channel.send(`The command \`${cmd}\` has been enabled in this server.`);
                 } else {
-                    await toggledCommandsCollection.insertOne({ command: cmd });
-                    await message.channel.send(`The command \`${cmd}\` has been disabled.`);
+                    await toggledCommandsCollection.insertOne({ command: cmd, guildId });
+                    await message.channel.send(`The command \`${cmd}\` has been disabled in this server.`);
                 }
+            }
+            return;
+        } else if (command === '!blacklist') {
+            if (!isAdmin(message.member)) {
+                return message.channel.send('You do not have permission to use this command.');
+            }
+
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return message.channel.send('Please mention a user to blacklist.');
+            }
+
+            const blacklistedUser = await blacklistCollection.findOne({ userId: mentionedUser.id });
+
+            if (blacklistedUser) {
+                await blacklistCollection.deleteOne({ userId: mentionedUser.id });
+                await message.channel.send(`Removed ${mentionedUser.tag} from the blacklist.`);
+            } else {
+                await blacklistCollection.insertOne({ userId: mentionedUser.id });
+                await message.channel.send(`Added ${mentionedUser.tag} to the blacklist.`);
             }
             return;
         } else if (command === '!exitgame') {
@@ -845,7 +874,7 @@ client.on('messageCreate', async message => {
             currentGame = new GameSession('blackjack', message);
             await currentGame.start();
         } else if (command === '!slots') {
-            const bet = args[1]
+            const bet = args[1];
             if (!isNaN(bet)) {
                 await slotMachineGame.slotMachineGame(message, bet);
             } else {
@@ -882,22 +911,12 @@ client.on('messageCreate', async message => {
         } else if (command === '!draw') {
             await chessGame.proposeDraw(message);
         } else if (command === '!promote') {
-            const playerGames = await getPlayerGames();
-            const gameKey = playerGames.get(message.author.id);
-
-            console.log(`!promote command with gameKey: ${gameKey}`);
-
-            if (gameKey && promotionChoices.has(gameKey)) {
-                const choice = args[1].toLowerCase();
-                if (!['q', 'r', 'b', 'n'].includes(choice)) {
-                    await message.channel.send('Invalid choice! Please choose: Q (Queen), R (Rook), B (Bishop), N (Knight)');
-                } else {
-                    promotionChoices.set(gameKey, { ...promotionChoices.get(gameKey), choice });
-                    await chessGame.makeMove(message, `${promotionChoices.get(gameKey).from}-${promotionChoices.get(gameKey).to}`, gameKey, choice);
-                }
-            } else {
-                await message.channel.send('No pawn to promote or invalid game.');
+            const choice = args[1];
+            if (!choice) {
+                await message.channel.send('Please specify a piece for promotion (Q, R, B, N).');
+                return;
             }
+            await chessGame.promote(message, choice);
         } else if (command === '!stats') {
             const username = message.content.split(' ')[1];
             try {
@@ -935,7 +954,7 @@ client.on('messageCreate', async message => {
                 return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
             }
 
-            const userId = message.author.id;
+
 
             // Check if user is in validGptRoleIds collection
             if (!await isValidGptRoleId(userId)) {
@@ -947,7 +966,7 @@ client.on('messageCreate', async message => {
 
             if (cooldowns.gpt.has(userId)) {
                 const expirationTime = cooldowns.gpt.get(userId) + cooldownAmount;
-                if (now < expirationTime && userId !== '805009105855971329') {
+                if (now < expirationTime && userId !== saecro) {
                     const timeLeft = (expirationTime - now) / 1000;
                     return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gpt\` command.`);
                 }
@@ -965,8 +984,8 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            const userId = message.author.id;
-            const valid = isValidGptRoleId(userId)
+
+            const valid = isValidGptRoleId(userId);
             const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
             const gptDrawChannelId = gptChannelDoc ? gptChannelDoc.gptDrawChannelId : null;
 
@@ -990,7 +1009,7 @@ client.on('messageCreate', async message => {
                     return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
-            if (userId !== '805009105855971329') {
+            if (userId !== saecro) {
                 cooldowns.gptdraw.set(userId, now);
                 setTimeout(() => cooldowns.gptdraw.delete(userId), cooldownAmount);
             }
@@ -1011,8 +1030,7 @@ client.on('messageCreate', async message => {
                             await message.channel.send('Failed to generate image.');
                             cooldowns.gptdraw.delete(userId);
                         }
-                    }
-                    else {
+                    } else {
                         await message.channel.send(base64Image.error.message);
                     }
                 } catch (error) {
@@ -1044,9 +1062,9 @@ client.on('messageCreate', async message => {
             }
             return;
         } else if (command === '!gptchannel') {
-            const userId = message.author.id;
 
-            if (isAdmin(message.member) || userId === '805009105855971329') {
+
+            if (isAdmin(message.member) || userId === saecro) {
                 const mentionedChannel = message.mentions.channels.first();
                 const channelId = mentionedChannel ? mentionedChannel.id : args[1];
 
@@ -1069,9 +1087,9 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!gptdrawchannel') {
-            const userId = message.author.id;
 
-            if (isAdmin(message.member) || userId === '805009105855971329') {
+
+            if (isAdmin(message.member) || userId === saecro) {
                 const mentionedChannel = message.mentions.channels.first();
                 const channelId = mentionedChannel ? mentionedChannel.id : args[1];
 
@@ -1094,8 +1112,8 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!timelog') {
-            const userId = message.author.id;
-            if (isAdmin(message.member) || userId === '805009105855971329') {
+
+            if (isAdmin(message.member) || userId === saecro) {
 
                 const channel = message.mentions.channels.first();
                 if (channel) {
@@ -1114,7 +1132,7 @@ client.on('messageCreate', async message => {
 
         } else if (command === '!skull') {
             let userId = message.author.id;
-            if (isAdmin(message.member) || userId === '805009105855971329') {
+            if (isAdmin(message.member) || userId === saecro) {
 
                 let roleId = args[1];
                 if (roleId) {
@@ -1146,11 +1164,11 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!shop') {
-            if (message.author.id === '805009105855971329') {
+            if (message.author.id === saecro) {
                 await shop.listShopItems(message);
             }
         } else if (command === '!buy') {
-            if (message.author.id === '805009105855971329') {
+            if (message.author.id === saecro) {
                 const itemName = args.slice(1, -1).join(' ');
                 const quantityArg = args.slice(-1)[0];
                 const quantity = isNaN(quantityArg) ? 1 : parseInt(quantityArg, 10);
@@ -1162,7 +1180,7 @@ client.on('messageCreate', async message => {
                 }
             }
         } else if (command === '!inventory') {
-            if (message.author.id === '805009105855971329') {
+            if (message.author.id === saecro) {
                 await shop.showInventory(message);
             }
         } else if (command === '!tz') {
@@ -1171,9 +1189,9 @@ client.on('messageCreate', async message => {
                     return await message.channel.send('Please provide a city in the format `!tz set [City, Country/State]`.');
                 }
                 const city = args.slice(2).join(' ');
-                await setTimezone(message, city);
+                await setTimezone(message, city, userId);
             } else {
-                await showTimezone(message);
+                await showTimezone(message, userId);
             }
         } else if (message.content.toLowerCase() === '!frimpong ping pong king kong') {
             const imagePath = path.join(__dirname, 'teaserimage.jpg');
@@ -1189,32 +1207,33 @@ client.on('messageCreate', async message => {
                 // If the file does not exist, send an error message
                 message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
-            } else if (command === '!rape') {
-                // Get the user mentioned in the message
-                let user = message.mentions.users.first();
+        } else if (command === '!rape') {
+            // Get the user mentioned in the message
+            let user = message.mentions.users.first();
 
-                // If a user is mentioned, send a rape message with an embed
-                if (user) {
-                    if (user.id !== '805009105855971329') {
-                        const randomGifPath = getRandomGif();
-                        const embed = new Discord.EmbedBuilder()
-                            .setDescription(`<@${user.id}> has been raped!`)
-                            .setImage(`attachment://${path.basename(randomGifPath)}`)
-                            .setColor('#FF0000'); // Optional: Set the color of the embed
+            // If a user is mentioned, send a rape message with an embed
+            if (user) {
+                if ((user.id !== saecro || message.author.id === '989718366317056062') &&
+                    user.id !== '989718366317056062') {
+                    const randomGifPath = getRandomGif();
+                    const embed = new Discord.EmbedBuilder()
+                        .setDescription(`<@${user.id}> has been raped!`)
+                        .setImage(`attachment://${path.basename(randomGifPath)}`)
+                        .setColor('#FF0000'); // Optional: Set the color of the embed
 
-                        message.channel.send({
-                            embeds: [embed],
-                            files: [{
-                                attachment: randomGifPath,
-                                name: path.basename(randomGifPath)
-                            }]
-                        });
-                    } else {
-                        message.channel.send(`${user.username} cannot be raped`);
-                    }
+                    message.channel.send({
+                        embeds: [embed],
+                        files: [{
+                            attachment: randomGifPath,
+                            name: path.basename(randomGifPath)
+                        }]
+                    });
+                } else {
+                    message.channel.send(`${user.username} cannot be raped`);
                 }
+            }
         } else if (command === '!aura') {
-            console.log('getting aura')
+            console.log('getting aura');
             const aura = await getAura(message.author.id);
             const embed = new Discord.EmbedBuilder()
                 .setColor('#00ff00')
@@ -1248,7 +1267,7 @@ client.on('messageCreate', async message => {
 
             await message.channel.send(`Successfully donated ${amount} coins to ${mentionedUser.username}.`);
         } else if (command === '!daily') {
-            const userId = message.author.id;
+
             const dailyCooldown = 24 * 60 * 60 * 1000; // 24 hours
 
             const lastDaily = await currencyCollection.findOne({ discordID: userId });
@@ -1270,7 +1289,7 @@ client.on('messageCreate', async message => {
 
             await message.channel.send('You have claimed your daily reward of 100 coins.');
         } else if (command === '!weekly') {
-            const userId = message.author.id;
+
             const weeklyCooldown = 7 * 24 * 60 * 60 * 1000; // 7 days
 
             const lastWeekly = await currencyCollection.findOne({ discordID: userId });
@@ -1311,7 +1330,7 @@ client.on('messageCreate', async message => {
 
             return await message.channel.send(`Blocked commands in ${channel}: ${commandsToBlock.join(', ')}`);
         } else if (command === '!note') {
-            const userId = message.author.id;
+
             const note = args.slice(1).join(' ');
             if (!note) {
                 return await message.channel.send('Please provide a note to save.');
@@ -1340,13 +1359,13 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Failed to save your note.');
             }
         } else if (command === '!resetmoney') {
-            if (message.author.id === '805009105855971329') {
-                currencyCollection.deleteMany({})
-                return message.channel.send('deleted all records on Database.')
+            if (message.author.id === saecro) {
+                currencyCollection.deleteMany({});
+                return message.channel.send('deleted all records on Database.');
             }
         } else if (command === '!give') {
-            const userId = message.author.id;
-            if (userId === '805009105855971329') {
+
+            if (userId === saecro) {
                 const mentionedUser = message.mentions.users.first();
                 const amount = parseInt(args[2], 10);
 
@@ -1362,8 +1381,34 @@ client.on('messageCreate', async message => {
             }
         } else if (command === '!leaderboard') {
             await leaderboard(message);
-        }
+        } else if (command === '!startdebugchess') {
+            if (userId === saecro) {
+                const mentionedUser = message.mentions.users.first();
+                if (!mentionedUser) {
+                    return await message.channel.send('Please mention a user to start a chess game with.');
+                }
 
+                const participants = new Map();
+                participants.set(message.author.id, message.author.username);
+                participants.set(mentionedUser.id, mentionedUser.username);
+
+                await startChessGame(message, participants, true); // Pass true for debug mode
+            }
+        } else if (command === '!exec') {
+            if (userId === saecro) {
+                exec(executeCommand, (error, stdout, stderr) => {
+                    if (error) {
+                        message.channel.send(`\`\`\`Error: ${error.message}\`\`\``);
+                        return;
+                    }
+                    if (stderr) {
+                        message.channel.send(`\`\`\`Stderr: ${stderr}\`\`\``);
+                        return;
+                    }
+                    message.channel.send(`\`\`\`${stdout}\`\`\``);
+                });
+            }
+        }
     }
 });
 
@@ -1468,6 +1513,7 @@ async function startJoinPhase(message) {
         });
     });
 }
+
 async function sendTemporaryEmbed(channel, description, user) {
     const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
@@ -1509,8 +1555,8 @@ async function startHangMan(message, participants) {
     currentGame = null;
 }
 
-async function startChessGame(message, participants) {
-    await chessGame.startChessGame(message, participants);
+async function startChessGame(message, participants, debug = false) {
+    await chessGame.startChessGame(message, participants, debug);
 }
 
 async function startBlackjackGame(message, participants) {

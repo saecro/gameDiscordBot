@@ -142,11 +142,11 @@ async function slotMachineGame(message, bet) {
     if (payout > bet) {
         newAmount = userMoney + payout;
         resultText = `Congratulations! You won ${payout} coins! Your new balance is ${newAmount}.`;
-        gifPath = path.join(__dirname, '..', 'gifs', 'win.gif');
+        gifPath = path.join(__dirname, '..', 'gambleGifs', 'win.gif');
     } else {
         newAmount = userMoney - bet;
         resultText = `Sorry, you lost. You made ${payout}. Your new balance is ${newAmount}.`;
-        gifPath = path.join(__dirname, '..', 'gifs', 'lose.gif');
+        gifPath = path.join(__dirname, '..', 'gambleGifs', 'lose.gif');
     }
     resultText = `you staked ${bet}.\n\n` + resultText
     await updateUserCurrency(userId, newAmount);
