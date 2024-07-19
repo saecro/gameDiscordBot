@@ -10,6 +10,12 @@ let db, currencyCollection;
 
 async function getUserCurrency(userId) {
     let user = await currencyCollection.findOne({ discordID: userId });
+
+    if (!user) {
+        user = { discordID: userId, money: 100 };
+        await currencyCollection.insertOne(user);
+    }
+
     return user.money;
 }
 
@@ -23,7 +29,7 @@ async function askForStake(message, player, playerScores, playerStakes) {
         .setTitle(`${player.username}, place your stake`)
         .setDescription(`You have ${playerScores.get(player.id).money} coins. Please enter your stake (a positive integer).`);
 
-    await message.channel.send({ embeds: [initialEmbed] });
+    await message.channel.send({ content: `<@${player.id}>`, embeds: [initialEmbed] });
 
     const filter = (response) => response.author.id === player.id && !isNaN(response.content) && parseInt(response.content) > 0 && parseInt(response.content) <= playerScores.get(player.id).money;
     const collected = await message.channel.awaitMessages({ filter, max: 1, time: 30000, errors: ['time'] }).catch(() => null);
@@ -42,7 +48,7 @@ async function askForStake(message, player, playerScores, playerStakes) {
         const timeoutEmbed = new Discord.EmbedBuilder()
             .setColor('#ff0000')
             .setTitle(`${player.username}, you took too long`)
-            .setDescription('You did not enter a valid stake in time.');
+            .setDescription('You did not enter a valid stake in time. You have been removed from the game.')
 
         await message.channel.send({ embeds: [timeoutEmbed] });
         throw new Error(`Player ${player.username} did not enter a valid stake in time.`);
@@ -72,7 +78,7 @@ function calculateHandValue(hand) {
     let aceCount = 0;
 
     for (const card of hand) {
-        const cardValue = card.slice(0, -2); 
+        const cardValue = card.slice(0, -2);
         if (cardValue === 'A') {
             aceCount += 1;
             value += 11;
@@ -83,7 +89,7 @@ function calculateHandValue(hand) {
         }
     }
 
-    
+
     while (value > 21 && aceCount > 0) {
         value -= 10;
         aceCount -= 1;
@@ -118,7 +124,6 @@ async function startBlackjackGame(message, participants) {
     const playerStakes = new Map();
     const dealerHand = [];
 
-    
     for (const playerId of players) {
         const initialMoney = await getUserCurrency(playerId);
         if (initialMoney > 0) {
@@ -134,10 +139,24 @@ async function startBlackjackGame(message, participants) {
         return;
     }
 
-    
+    const removedPlayers = [];
     for (const playerId of playerScores.keys()) {
         const player = await message.client.users.fetch(playerId);
-        await askForStake(message, player, playerScores, playerStakes);
+        try {
+            await askForStake(message, player, playerScores, playerStakes);
+        } catch (error) {
+            removedPlayers.push(playerId);
+        }
+    }
+
+    for (const playerId of removedPlayers) {
+        playerScores.delete(playerId);
+    }
+
+    if (playerScores.size === 0) {
+        await message.channel.send('No players entered a valid stake. The game is cancelled.');
+        gameState[message.channel.id].running = false;
+        return;
     }
 
     const deck = createDeck();
@@ -165,15 +184,15 @@ async function startBlackjackGame(message, participants) {
     await message.channel.send({ embeds: [embed] });
 
     for (const playerId of playerScores.keys()) {
-        if (!checkRunning(message.channel.id)) return; 
+        if (!checkRunning(message.channel.id)) return;
         const player = await message.client.users.fetch(playerId);
         await playerTurn(message, player, playerHands, playerScores, playerStakes, deck);
     }
 
-    if (!checkRunning(message.channel.id)) return; 
+    if (!checkRunning(message.channel.id)) return;
     await dealerTurn(message, dealerHand, deck);
 
-    if (!checkRunning(message.channel.id)) return; 
+    if (!checkRunning(message.channel.id)) return;
     const winners = determineWinners(playerScores, dealerHand);
     await displayResults(message, winners, playerScores, playerStakes);
 }
@@ -207,8 +226,8 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
         try {
             const collected = await lastMessageWithButtons.awaitMessageComponent({ filter, componentType: Discord.ComponentType.Button, time: 30000 });
 
-            if (!checkRunning(message.channel.id)) return; 
-            await collected.deferUpdate(); 
+            if (!checkRunning(message.channel.id)) return;
+            await collected.deferUpdate();
 
             const action = collected.customId;
             if (action === 'hit') {
@@ -243,8 +262,8 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
                 isStanding = true;
             }
         } catch (error) {
-            
-            if (!checkRunning(message.channel.id)) return; 
+
+            if (!checkRunning(message.channel.id)) return;
             await lastMessageWithButtons.edit({ components: [] });
             const timeoutEmbed = new Discord.EmbedBuilder()
                 .setColor('#ff0000')
@@ -252,7 +271,7 @@ async function playerTurn(message, player, playerHands, playerScores, playerStak
                 .setDescription(`You took too long to respond. Your turn has ended.`);
 
             await message.channel.send({ embeds: [timeoutEmbed] });
-            isStanding = true; 
+            isStanding = true;
         }
     }
 
@@ -282,7 +301,7 @@ async function dealerTurn(message, dealerHand, deck) {
         await message.channel.send({ embeds: [drawEmbed] });
     }
 
-    if (!checkRunning(message.channel.id)) return; 
+    if (!checkRunning(message.channel.id)) return;
 
     if (dealerScore > 21) {
         const bustEmbed = new Discord.EmbedBuilder()
@@ -326,23 +345,23 @@ async function displayResults(message, winners, playerScores, playerStakes) {
         resultsEmbed.setDescription(`Congratulations to the winners: ${winnerMentions}!`);
     }
 
-    if (!checkRunning(message.channel.id)) return; 
+    if (!checkRunning(message.channel.id)) return;
     await message.channel.send({ embeds: [resultsEmbed] });
 
-    
+
     for (const winnerId of winners) {
         const playerMoney = await getUserCurrency(winnerId);
         const stake = playerStakes.get(winnerId);
-        const newAmount = Number(playerMoney) + stake; 
+        const newAmount = Number(playerMoney) + stake;
         await updateUserCurrency(winnerId, newAmount);
     }
 
-    
+
     for (const [playerId, { score }] of playerScores.entries()) {
         if (!winners.includes(playerId)) {
             const playerMoney = await getUserCurrency(playerId);
             const stake = playerStakes.get(playerId);
-            const newAmount = Number(playerMoney) - stake; 
+            const newAmount = Number(playerMoney) - stake;
             await updateUserCurrency(playerId, newAmount);
         }
     }
@@ -352,7 +371,7 @@ async function endBlackjackGame(message) {
     if (gameState[message.channel.id]) {
         gameState[message.channel.id].running = false;
 
-        
+
         if (lastMessageWithButtons) {
             const row = new Discord.ActionRowBuilder()
                 .addComponents(

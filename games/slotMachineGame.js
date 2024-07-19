@@ -1,46 +1,47 @@
 const { MongoClient } = require('mongodb');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const path = require('path');
 
 const symbols = ["🍒", "🍋", "🍊", "🍉", "🍇", "🔔", "⭐"];
 const symbolWeights = {
-    "🍒": 0.4,
-    "🍋": 0.25,
-    "🍊": 0.15,
-    "🍉": 0.1,
+    "🍒": 0.6,
+    "🍋": 0.15,
+    "🍊": 0.59,
+    "🍉": 0.07,
     "🍇": 0.05,
     "🔔": 0.03,
-    "⭐": 0.02
+    "⭐": 0.01
 };
 
 const payouts = {
-    "🍒🍒🍒": 10,
-    "🍋🍋🍋": 15,
-    "🍊🍊🍊": 20,
-    "🍉🍉🍉": 25,
-    "🍇🍇🍇": 30,
-    "🔔🔔🔔": 50,
+    "🍒🍒🍒": 0.5,
+    "🍋🍋🍋": 1,
+    "🍊🍊🍊": 1.5,
+    "🍉🍉🍉": 2,
+    "🍇🍇🍇": 5,
+    "🔔🔔🔔": 10,
     "⭐⭐⭐": 100,
-    "🍒🍒X": 2,
-    "🍒X🍒": 2,
-    "X🍒🍒": 2,
-    "🍋🍋X": 3,
-    "🍋X🍋": 3,
-    "X🍋🍋": 3,
-    "🍊🍊X": 5,
-    "🍊X🍊": 5,
-    "X🍊🍊": 5,
-    "🍉🍉X": 6,
-    "🍉X🍉": 6,
-    "X🍉🍉": 6,
-    "🍇🍇X": 7,
-    "🍇X🍇": 7,
-    "X🍇🍇": 7,
-    "🔔🔔X": 8,
-    "🔔X🔔": 8,
-    "X🔔🔔": 8,
-    "⭐⭐X": 9,
-    "⭐X⭐": 9,
-    "X⭐⭐": 9
+    "🍒🍒X": 0,
+    "🍒X🍒": 0,
+    "X🍒🍒": 0,
+    "🍋🍋X": 0.1,
+    "🍋X🍋": 0.1,
+    "X🍋🍋": 0.1,
+    "🍊🍊X": 0.25,
+    "🍊X🍊": 0.25,
+    "X🍊🍊": 0.25,
+    "🍉🍉X": 0.5,
+    "🍉X🍉": 0.5,
+    "X🍉🍉": 0.5,
+    "🍇🍇X": 1,
+    "🍇X🍇": 1,
+    "X🍇🍇": 1,
+    "🔔🔔X": 1.5,
+    "🔔X🔔": 1.5,
+    "X🔔🔔": 1.5,
+    "⭐⭐X": 2,
+    "⭐X⭐": 2,
+    "X⭐⭐": 2
 };
 
 const mongoUri = process.env.MONGO_URI;
@@ -82,6 +83,34 @@ function spinSlotMachine() {
     return Array.from({ length: 3 }, getRandomSymbol);
 }
 
+function calculatePayout(result, bet) {
+    const resultString = result.join('');
+    let payout = 0;
+
+    if (payouts[resultString]) {
+        payout = bet * payouts[resultString];
+    } else {
+        // Check for two symbols and a wildcard match
+        const possibleCombinations = [
+            `${result[0]}${result[1]}X`,
+            `${result[0]}X${result[1]}`,
+            `X${result[0]}${result[1]}`,
+            `${result[0]}X${result[2]}`,
+            `X${result[0]}${result[2]}`,
+            `${result[1]}X${result[2]}`,
+            `X${result[1]}${result[2]}`
+        ];
+        for (const combo of possibleCombinations) {
+            if (payouts[combo]) {
+                payout = bet * payouts[combo];
+                break;
+            }
+        }
+    }
+
+    return payout;
+}
+
 async function slotMachineGame(message, bet) {
     const userId = message.author.id;
     const userMoney = await getOrCreateUserCurrency(userId);
@@ -104,26 +133,29 @@ async function slotMachineGame(message, bet) {
         .setTitle('Slot Machine')
         .setDescription(`${message.author} spun the slot machine: ${resultMessage}`);
 
-    const resultString = result.join('');
-    let payout = 0;
+    const payout = calculatePayout(result, bet);
 
-    if (payouts[resultString]) {
-        payout = bet * payouts[resultString];
-    } else if (payouts[`${result[0]}${result[1]}X`] || payouts[`X${result[0]}${result[1]}`] || payouts[`${result[0]}X${result[1]}`]) {
-        payout = bet * (payouts[`${result[0]}${result[1]}X`] || payouts[`X${result[0]}${result[1]}`] || payouts[`${result[0]}X${result[1]}`]);
-    }
+    let newAmount;
+    let resultText;
+    let gifPath;
 
-    if (payout > 0) {
-        const newAmount = userMoney + payout;
-        await updateUserCurrency(userId, newAmount);
-        embed.addFields({ name: 'Result', value: `Congratulations! You won ${payout} coins! Your new balance is ${newAmount}.` });
+    if (payout > bet) {
+        newAmount = userMoney + payout;
+        resultText = `Congratulations! You won ${payout} coins! Your new balance is ${newAmount}.`;
+        gifPath = path.join(__dirname, '..', 'gifs', 'win.gif');
     } else {
-        const newAmount = userMoney - bet;
-        await updateUserCurrency(userId, newAmount);
-        embed.addFields({ name: 'Result', value: `Sorry, you didn't win this time. Your new balance is ${newAmount}.` });
+        newAmount = userMoney - bet;
+        resultText = `Sorry, you lost. You made ${payout}. Your new balance is ${newAmount}.`;
+        gifPath = path.join(__dirname, '..', 'gifs', 'lose.gif');
     }
 
-    await message.channel.send({ embeds: [embed] });
+    await updateUserCurrency(userId, newAmount);
+
+    const attachment = new AttachmentBuilder(gifPath);
+    embed.addFields({ name: 'Result', value: resultText });
+    embed.setImage(`attachment://${path.basename(gifPath)}`);
+
+    await message.channel.send({ embeds: [embed], files: [attachment] });
 }
 
 module.exports = {

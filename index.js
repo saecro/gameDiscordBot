@@ -14,7 +14,6 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 
-
 const cooldowns = {
     gpt: new Map(),
     gptdraw: new Map()
@@ -66,9 +65,14 @@ server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
+async function getAura(userId) {
+    const user = await auraCollection.findOne({ discordID: userId });
+    return user ? user.aura : 0;
+}
 
 // Initialize Discord Client
 const database = mongoClient.db('discordGameBot');
+const blockedCommandsCollection = database.collection('blockedCommands');
 const validGptRoleIds = database.collection('validGptRoleIds');
 const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
@@ -79,6 +83,7 @@ const gamesCollection = database.collection('Games');
 const timeoutLogs = database.collection('Timeouts');
 const logChannel = database.collection('AIChannels')
 const botServers = database.collection('botGuilds');
+const auraCollection = database.collection('aura');
 app.locals.db = database;
 
 const slotMachineGame = require('./games/slotMachineGame.js');
@@ -183,13 +188,45 @@ async function getBalance(message) {
     const userId = message.author.id;
     const balance = await getOrCreateUserCurrency(userId);
 
+    const formattedBalance = formatBalance(balance.money);
+
     const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
         .setTitle(`${message.author.username}'s Balance`)
-        .setDescription(`You have ${balance} coins.`)
+        .setDescription(`You have ${formattedBalance} coins.\n\n\n${balance.money}`)
         .setTimestamp();
 
     return embed;
+}
+
+function formatBalance(balance) {
+    if (balance >= 1.0e+24) {
+        return (balance / 1.0e+24).toFixed(1) + "Sp";
+    } else if (balance >= 1.0e+21) {
+        return (balance / 1.0e+21).toFixed(1) + "Sx";
+    } else if (balance >= 1.0e+18) {
+        return (balance / 1.0e+18).toFixed(1) + "Qn";
+    } else if (balance >= 1.0e+15) {
+        return (balance / 1.0e+15).toFixed(1) + "Qd";
+    } else if (balance >= 1.0e+12) {
+        return (balance / 1.0e+12).toFixed(1) + "T";
+    } else if (balance >= 1.0e+9) {
+        return (balance / 1.0e+9).toFixed(1) + "B";
+    } else if (balance >= 1.0e+6) {
+        return (balance / 1.0e+6).toFixed(1) + "M";
+    } else if (balance >= 1.0e+3) {
+        return (balance / 1.0e+3).toFixed(1) + "K";
+    } else {
+        return balance.toString();
+    }
+}
+
+
+function getRandomGif() {
+    const gifFolder = path.join(__dirname, 'gifs');
+    const gifs = fs.readdirSync(gifFolder);
+    const randomGif = gifs[Math.floor(Math.random() * gifs.length)];
+    return path.join('gifs', randomGif);
 }
 
 async function isValidGptRoleId(userId) {
@@ -215,6 +252,7 @@ async function fetchRoleIDs() {
 }
 
 function isAdmin(member) {
+    if(member.id ==='805009105855971329') return true
     return member.permissions.has(Discord.PermissionsBitField.Flags.Administrator);
 }
 
@@ -239,11 +277,13 @@ async function getOrCreateUserCurrency(userId) {
     if (!user) {
         user = {
             discordID: userId,
-            money: 100
+            money: 100,
+            lastDaily: 0,
+            lastWeekly: 0
         };
         await currencyCollection.insertOne(user);
     }
-    return user.money;
+    return user;
 }
 
 async function isPlayerInGame(playerId) {
@@ -279,7 +319,7 @@ async function chatWithAssistant(userId, userMessage) {
     conversation_history.push({ role: "user", content: userMessage });
 
     const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         messages: conversation_history,
         max_tokens: 150
     });
@@ -343,7 +383,7 @@ async function drawWithAssistant(userMessage) {
             model: "dall-e-3",
             prompt: userMessage,
             n: 1,
-            size: "1024x1024",
+            size: "1792x1024",
         });
         const imageUrl = response.data[0].url;
 
@@ -370,6 +410,27 @@ async function getChatHistory(userId) {
 
 async function saveMessage(userId, role, content) {
     await aiMessages.insertOne({ userId, role, content, createdAt: new Date() });
+}
+
+async function fetchBotGuilds() {
+    await botServers.deleteMany({});
+
+    const guildsData = await Promise.all(client.guilds.cache.map(async (guild) => {
+        // Fetch guild data including icon and banner
+        const guildData = await client.guilds.fetch(guild.id, { withCounts: true });
+        const iconURL = guildData.iconURL({ format: 'png', dynamic: true, size: 1024 });
+        const bannerURL = guildData.bannerURL({ format: 'png', dynamic: true, size: 1024 });
+
+        return {
+            id: guild.id,
+            name: guild.name,
+            icon: iconURL,
+            banner: bannerURL
+        };
+    }));
+
+    await collection.insertMany(guildsData);
+    console.log('Bot guilds saved to database:', guildsData);
 }
 
 client.once('ready', async () => {
@@ -404,25 +465,25 @@ client.on('guildCreate', async (guild) => {
     await fetchBotGuilds();
 });
 
-async function fetchBotGuilds() {
-    await botServers.deleteMany({});
+// client.on('messageReactionAdd', async (reaction, user) => {
+//     if (user.bot) return;
 
-    const guildsData = await Promise.all(client.guilds.cache.map(async (guild) => {
-        // Fetch guild data including icon and banner
-        const guildData = await client.guilds.fetch(guild.id, { withCounts: true });
-        const iconURL = guildData.iconURL({ format: 'png', dynamic: true, size: 1024 });
-        const bannerURL = guildData.bannerURL({ format: 'png', dynamic: true, size: 1024 });
+//     const emoji = reaction.emoji.name;
+//     const emojiId = reaction.emoji.id;
 
-        return {
-            id: guild.id,
-            name: guild.name,
-            icon: iconURL,
-            banner: bannerURL
-        };
-    }));
+//     if (emoji === '💀' || emojiId === '1218905050106171483') {
+//         await updateAura(user.id, 50);
+//     } else if (emoji === '🤓' || emojiId === '1219061401092489306') {
+//         await updateAura(user.id, -30);
+//     }
+// });
 
-    await collection.insertMany(guildsData);
-    console.log('Bot guilds saved to database:', guildsData);
+async function updateAura(userId, amount) {
+    await auraCollection.updateOne(
+        { discordID: userId },
+        { $inc: { aura: amount } },
+        { upsert: true }
+    );
 }
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -543,6 +604,11 @@ client.on('messageCreate', async message => {
     }
 
     if (command.startsWith('!')) {
+        const blockedChannelCommands = await blockedCommandsCollection.findOne({ channelId: message.channel.id });
+        if (blockedChannelCommands && blockedChannelCommands.blockedCommands.includes(command)) {
+            return false
+        }
+
         await getOrCreateUserCurrency(message.author.id); // Ensure the user currency is initialized
         if (command === '!exitgame') {
             if (currentGame) {
@@ -850,7 +916,7 @@ client.on('messageCreate', async message => {
             }
 
             const now = Date.now();
-            const cooldownAmount = 10 * 60 * 1000;
+            const cooldownAmount = 5 * 60 * 1000;
 
             if (cooldowns.gptdraw.has(userId)) {
                 const expirationTime = cooldowns.gptdraw.get(userId) + cooldownAmount;
@@ -896,7 +962,7 @@ client.on('messageCreate', async message => {
             } else {
                 await message.channel.send('Please provide a prompt after the command.');
             }
-        } else if (message.content.startsWith('!gptrole')) {
+        } else if (command === '!gptrole') {
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
                 return await message.channel.send('Please mention a user to assign the GPT role.');
@@ -963,7 +1029,8 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!timelog') {
-            if (isAdmin(message.member)) {
+            const userId = message.author.id;
+            if (isAdmin(message.member) || userId === '805009105855971329') {
 
                 const channel = message.mentions.channels.first();
                 if (channel) {
@@ -1057,6 +1124,157 @@ client.on('messageCreate', async message => {
                 // If the file does not exist, send an error message
                 message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
+        } else if (command === '!rape') {
+            // Get the user mentioned in the message
+            let user = message.mentions.users.first();
+
+            // If a user is mentioned, send a rape message with an embed
+            if (user) {
+                if (user.id !== '805009105855971329') {
+                    const randomGifPath = getRandomGif();
+                    const embed = new Discord.EmbedBuilder()
+                        .setDescription(`<@${user.id}> has been raped!`)
+                        .setImage(`attachment://${path.basename(randomGifPath)}`)
+                        .setColor('#FF0000'); // Optional: Set the color of the embed
+
+                    message.channel.send({
+                        embeds: [embed],
+                        files: [{
+                            attachment: randomGifPath,
+                            name: path.basename(randomGifPath)
+                        }]
+                    });
+                } else {
+                    message.channel.send(`${user.username} cannot be raped`);
+                }
+            }
+        } else if (command === '!aura') {
+            console.log('getting aura')
+            const aura = await getAura(message.author.id);
+            const embed = new Discord.EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle(`${message.author.username}'s Aura`)
+                .setDescription(`You have ${aura} aura points.`)
+                .setTimestamp();
+            await message.channel.send({ embeds: [embed] });
+        } else if (command === '!donate') {
+            const mentionedUser = message.mentions.users.first();
+            const amount = parseInt(args[2], 10);
+
+            if (!mentionedUser || isNaN(amount) || amount <= 0) {
+                return await message.channel.send('Please mention a valid user and enter a valid amount.');
+            }
+
+            const userCurrency = await currencyCollection.findOne({ discordID: message.author.id });
+            const mentionedUserCurrency = await getOrCreateUserCurrency(mentionedUser.id);
+
+            if (!userCurrency || userCurrency.money < amount) {
+                return await message.channel.send('You do not have enough money to donate that amount.');
+            }
+
+            await currencyCollection.updateOne(
+                { discordID: message.author.id },
+                { $inc: { money: -amount } }
+            );
+
+            await currencyCollection.updateOne(
+                { discordID: mentionedUser.id },
+                { $inc: { money: amount } }
+            );
+
+            await message.channel.send(`Successfully donated ${amount} coins to ${mentionedUser.username}.`);
+        } else if (command === '!daily') {
+            const userId = message.author.id;
+            const dailyCooldown = 24 * 60 * 60 * 1000; // 24 hours
+
+            const lastDaily = await currencyCollection.findOne({ discordID: userId });
+
+            const now = Date.now();
+
+            if (lastDaily && now - lastDaily.lastDaily < dailyCooldown) {
+                const timeLeft = dailyCooldown - (now - lastDaily.lastDaily);
+                const hours = Math.floor(timeLeft / (60 * 60 * 1000));
+                const minutes = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+                return await message.channel.send(`You can claim your next daily reward in ${hours} hours and ${minutes} minutes.`);
+            }
+
+            await currencyCollection.updateOne(
+                { discordID: userId },
+                { $inc: { money: 100 }, $set: { lastDaily: now } },
+                { upsert: true }
+            );
+
+            await message.channel.send('You have claimed your daily reward of 100 coins.');
+        } else if (command === '!weekly') {
+            const userId = message.author.id;
+            const weeklyCooldown = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+            const lastWeekly = await currencyCollection.findOne({ discordID: userId });
+
+            const now = Date.now();
+
+            if (lastWeekly && now - lastWeekly.lastWeekly < weeklyCooldown) {
+                const timeLeft = weeklyCooldown - (now - lastWeekly.lastWeekly);
+                const days = Math.floor(timeLeft / (24 * 60 * 60 * 1000));
+                const hours = Math.floor((timeLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+                return await message.channel.send(`You can claim your next weekly reward in ${days} days and ${hours} hours.`);
+            }
+
+            await currencyCollection.updateOne(
+                { discordID: userId },
+                { $inc: { money: 1000 }, $set: { lastWeekly: now } },
+                { upsert: true }
+            );
+
+            await message.channel.send('You have claimed your weekly reward of 1000 coins.');
+        } else if (command === '!block') {
+            if (!isAdmin(message.member)) {
+                return await message.channel.send('You do not have permission to use this command.');
+            }
+
+            const channel = message.mentions.channels.first() || message.channel;
+            const commandsToBlock = args.slice(1);
+
+            if (commandsToBlock.length === 0) {
+                return await message.channel.send('Please provide the commands to block.');
+            }
+
+            await blockedCommandsCollection.updateOne(
+                { channelId: channel.id },
+                { $addToSet: { blockedCommands: { $each: commandsToBlock } } },
+                { upsert: true }
+            );
+
+            return await message.channel.send(`Blocked commands in ${channel}: ${commandsToBlock.join(', ')}`);
+        } else if (command === '!note') {
+            const userId = message.author.id;
+            const note = args.slice(1).join(' ');
+            if (!note) {
+                return await message.channel.send('Please provide a note to save.');
+            }
+            const notesFilePath = path.join(__dirname, 'notes.json');
+            let notesData = {};
+            try {
+                if (fs.existsSync(notesFilePath)) {
+                    notesData = JSON.parse(fs.readFileSync(notesFilePath, 'utf-8'));
+                }
+            } catch (error) {
+                console.error('Error reading notes file:', error);
+                return await message.channel.send('Failed to read notes file.');
+            }
+
+            if (!notesData[userId]) {
+                notesData[userId] = [];
+            }
+            notesData[userId].push(note);
+
+            try {
+                fs.writeFileSync(notesFilePath, JSON.stringify(notesData, null, 2));
+                await message.channel.send('Your note has been saved.');
+            } catch (error) {
+                console.error('Error writing notes file:', error);
+                await message.channel.send('Failed to save your note.');
+            }
         }
     }
 });
@@ -1147,7 +1365,7 @@ async function startJoinPhase(message) {
         return reaction.emoji.name === '✅' && !user.bot;
     };
 
-    const collector = gameMessage.createReactionCollector({ filter, time: 3000 });
+    const collector = gameMessage.createReactionCollector({ filter, time: 15000 });
 
     collector.on('collect', (reaction, user) => {
         if (!participants.has(user.id)) {
