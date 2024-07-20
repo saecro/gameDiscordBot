@@ -1207,7 +1207,23 @@ client.on('messageCreate', async message => {
             // Get the user mentioned in the message
             let user = message.mentions.users.first();
 
-            // If a user is mentioned, send a rape message with an embed
+            // Get the member object of the message author
+            let member = message.guild.members.cache.get(message.author.id);
+
+            // Check if the member has one of the specified role IDs
+            const hasRequiredRole = member.roles.cache.some(role =>
+                ['1210746667427561563', '1138038219775160441'].includes(role.id)
+            );
+
+            if (!hasRequiredRole) {
+                message.channel.send("your greenie ass can't rape anyone");
+                return;
+            }
+
+            if (user.id === '1242601206627434708') {
+                return message.channel.send("you can't rape the bot nigga.")
+            }
+
             if (user) {
                 if ((user.id !== saecro || message.author.id === '989718366317056062') &&
                     user.id !== '989718366317056062') {
