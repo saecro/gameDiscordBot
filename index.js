@@ -889,7 +889,7 @@ client.on('messageCreate', async message => {
             currentGame = new GameSession('blackjack', message);
             await currentGame.start();
         } else if (command === '!slots') {
-            const bet = args[1];
+            const bet = parseInt(args[1], 10);
             if (!isNaN(bet)) {
                 await slotMachineGame.slotMachineGame(message, bet);
             } else {

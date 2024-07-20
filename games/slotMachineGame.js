@@ -14,34 +14,34 @@ const symbolWeights = {
 };
 
 const payouts = {
-    "🍒🍒🍒": 1.2,
-    "🍋🍋🍋": 1.5,
-    "🍊🍊🍊": 2,
-    "🍉🍉🍉": 5,
-    "🍇🍇🍇": 10,
-    "🔔🔔🔔": 25,
-    "⭐⭐⭐": 100,
+    "🍒🍒🍒": 1.0,
+    "🍋🍋🍋": 2.0,
+    "🍊🍊🍊": 3.0,
+    "🍉🍉🍉": 5.0,
+    "🍇🍇🍇": 8.0,
+    "🔔🔔🔔": 12.0,
+    "⭐⭐⭐": 25.0,
     "🍒🍒X": 0.5,
-    "🍒X🍒": 0.5,
+    "🍒X🍒": 0.5,   
     "X🍒🍒": 0.5,
-    "🍋🍋X": 1,
-    "🍋X🍋": 1,
-    "X🍋🍋": 1,
+    "🍋🍋X": 1.0,
+    "🍋X🍋": 1.0,
+    "X🍋🍋": 1.0,
     "🍊🍊X": 1.5,
     "🍊X🍊": 1.5,
     "X🍊🍊": 1.5,
-    "🍉🍉X": 2,
-    "🍉X🍉": 2,
-    "X🍉🍉": 2,
-    "🍇🍇X": 3,
-    "🍇X🍇": 3,
-    "X🍇🍇": 3,
-    "🔔🔔X": 5,
-    "🔔X🔔": 5,
-    "X🔔🔔": 5,
-    "⭐⭐X": 10,
-    "⭐X⭐": 10,
-    "X⭐⭐": 10
+    "🍉🍉X": 2.0,
+    "🍉X🍉": 2.0,
+    "X🍉🍉": 2.0,
+    "🍇🍇X": 3.0,
+    "🍇X🍇": 3.0,
+    "X🍇🍇": 3.0,
+    "🔔🔔X": 5.0,
+    "🔔X🔔": 5.0,
+    "X🔔🔔": 5.0,
+    "⭐⭐X": 10.0,
+    "⭐X⭐": 10.0,
+    "X⭐⭐": 10.0
 };
 
 const mongoUri = process.env.MONGO_URI;
@@ -108,12 +108,17 @@ function calculatePayout(result, bet) {
         }
     }
 
-    return payout;
+    return Math.ceil(payout);  // Round up to the nearest whole number
 }
 
 async function slotMachineGame(message, bet) {
     const userId = message.author.id;
     const userMoney = await getOrCreateUserCurrency(userId);
+
+    if (!Number.isInteger(bet)) {
+        await message.channel.send('Please enter a valid integer bet amount.');
+        return;
+    }
 
     if (bet > userMoney) {
         await message.channel.send('You do not have enough currency to place this bet.');
@@ -148,7 +153,7 @@ async function slotMachineGame(message, bet) {
         resultText = `Sorry, you lost. You made ${payout}. Your new balance is ${newAmount}.`;
         gifPath = path.join(__dirname, '..', 'gambleGifs', 'lose.gif');
     }
-    resultText = `you staked ${bet}.\n\n` + resultText
+    resultText = `You staked ${bet}.\n\n` + resultText;
     await updateUserCurrency(userId, newAmount);
 
     const attachment = new AttachmentBuilder(gifPath);
