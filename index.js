@@ -5,6 +5,7 @@ const passport = require('passport');
 const { MongoClient } = require('mongodb');
 const MongoStore = require('connect-mongo');
 const { exec } = require('child_process')
+const readline = require('readline');
 const Discord = require('discord.js');
 require('dotenv').config();
 const http = require('http');
@@ -16,6 +17,8 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 const saecro = '805009105855971329';
+const angie = '721260969849913385'
+const c = '989718366317056062';
 const cooldowns = {
     gpt: new Map(),
     gptdraw: new Map()
@@ -219,7 +222,7 @@ async function getBalance(message) {
     const embed = new Discord.EmbedBuilder()
         .setColor('#00ff00')
         .setTitle(`${name}'s Balance`)
-        .setDescription(`You have ${formattedBalance} coins.\n\n\n${balance.money}`)
+        .setDescription(`${name} has ${formattedBalance} coins.`)
         .setTimestamp();
 
     console.log(`User balance: ${balance.money}`);
@@ -249,6 +252,33 @@ async function leaderboard(message) {
     }
 
     return message.channel.send({ embeds: [embed] });
+}
+
+async function sendMessageInParts(channel, message) {
+    const messages = splitMessageByParagraphs(message);
+    for (const msg of messages) {
+        await channel.send(msg);
+    }
+}
+
+function splitMessageByParagraphs(text) {
+    const paragraphs = text.split('\n\n');
+    const messages = [];
+    let currentMessage = '';
+
+    paragraphs.forEach(paragraph => {
+        if ((currentMessage + paragraph).length > 2000) {
+            messages.push(currentMessage);
+            currentMessage = '';
+        }
+        currentMessage += paragraph + '\n\n';
+    });
+
+    if (currentMessage.trim().length > 0) {
+        messages.push(currentMessage.trim());
+    }
+
+    return messages;
 }
 
 async function isCommandToggledOff(command, guildId) {
@@ -314,6 +344,45 @@ async function fetchRoleIDs() {
     const documents = await roleCollection.find({}).toArray();
     roleIDs = documents.map(doc => doc.roleId);
     console.log(`Fetched role IDs: ${roleIDs}`);
+}
+
+function getAllFiles(dir, fileExtensionList, fileList = []) {
+    const files = fs.readdirSync(dir);
+
+    files.forEach(file => {
+        const filePath = path.join(dir, file);
+        if (fs.statSync(filePath).isDirectory() && file !== 'node_modules') {
+            getAllFiles(filePath, fileExtensionList, fileList);
+        } else if (fileExtensionList.includes(path.extname(file))) {
+            fileList.push(filePath);
+        }
+    });
+
+    return fileList;
+}
+
+// Function to count lines in a file
+function countLines(filePath) {
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    return fileContent.split('\n').length;
+}
+
+// Function to handle sending messages in chunks
+async function sendInChunks(channel, message) {
+    const maxLength = 2000;
+    let currentMessage = '';
+
+    for (const line of message.split('\n')) {
+        if ((currentMessage + line + '\n').length > maxLength) {
+            await channel.send('```' + currentMessage + '```');
+            currentMessage = '';
+        }
+        currentMessage += line + '\n';
+    }
+
+    if (currentMessage.length > 0) {
+        await channel.send('```' + currentMessage + '```');
+    }
 }
 
 function isAdmin(member) {
@@ -387,7 +456,6 @@ async function chatWithAssistant(userId, userMessage) {
     const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: conversation_history,
-        max_tokens: 150
     });
     const assistantMessage = response.choices[0].message.content;
 
@@ -397,6 +465,53 @@ async function chatWithAssistant(userId, userMessage) {
     console.log(`Assistant response: ${assistantMessage}`);
     return assistantMessage;
 }
+
+async function generateDrawingPromptWithAssistant(userMessage) {
+    console.log(`Generating drawing prompt with assistant, userMessage: ${userMessage}`);
+
+    const conversation_history = [
+        {
+            role: 'system',
+            content: `You are an AI specialized in creating prompts for art generation. The user will provide a basic idea, and your task is to expand on that idea with some added descriptions, including elements such as setting, characters, colors, and mood. Your response should be a single, concise prompt suitable for input into an AI art generator. Ensure it captures the user's request specifically, without adding too much detail.`,
+        },
+        { role: "user", content: userMessage }
+    ];
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: conversation_history,
+        });
+        const detailedPrompt = response.choices[0].message.content;
+
+        console.log(`Detailed prompt generated: ${detailedPrompt}`);
+        return detailedPrompt;
+    } catch (error) {
+        console.error('Error generating detailed prompt:', error);
+        return error;
+    }
+}
+
+function splitText(text, maxLength) {
+    const lines = text.split('\n');
+    const chunks = [];
+    let currentChunk = '';
+
+    lines.forEach(line => {
+        if (currentChunk.split('\n').length + 1 > maxLength) {
+            chunks.push(currentChunk);
+            currentChunk = '';
+        }
+        currentChunk += line + '\n';
+    });
+
+    if (currentChunk) {
+        chunks.push(currentChunk);
+    }
+
+    return chunks;
+}
+
 async function setTimezone(message, location, userId) {
     console.log(`Setting timezone for userId: ${userId}, location: ${location}`);
 
@@ -448,22 +563,27 @@ async function showTimezone(message, userId) {
 async function drawWithAssistant(userMessage) {
     console.log(`Drawing with assistant, userMessage: ${userMessage}`);
     try {
+        const detailedPrompt = await generateDrawingPromptWithAssistant(userMessage);
+
         const response = await openai.images.generate({
             model: "dall-e-3",
-            prompt: userMessage,
+            prompt: detailedPrompt,
             n: 1,
             size: "1792x1024",
         });
-        const imageUrl = response.data[0].url;
 
+        const imageUrl = response.data[0].url;
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
         console.log('Image generated successfully');
-        return imageData;
+        return {
+            updatedDetail: detailedPrompt,
+            imageData
+        }
     } catch (error) {
         console.error('Error generating or fetching image:', error);
-        return error;
+        return { error: error.message };
     }
 }
 
@@ -895,7 +1015,7 @@ client.on('messageCreate', async message => {
             } else {
                 await message.channel.send('Please enter a valid bet amount. `!slots 100`');
             }
-        } else if (command === '!balance') {
+        } else if (command === '!balance' || command === '!bal') {
             const embed = await getBalance(message);
             await message.channel.send({ embeds: [embed] });
         } else if (command === '!move') {
@@ -961,9 +1081,11 @@ client.on('messageCreate', async message => {
             const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
             const gptChannelId = gptChannelDoc ? gptChannelDoc.gptChannelId : null;
 
-            if (!gptChannelId || message.channel.id !== gptChannelId) {
-                const channelMention = gptChannelId ? `<#${gptChannelId}>` : 'the specified channel';
-                return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
+            if ((!gptChannelId || message.channel.id !== gptChannelId)) {
+                if (userId !== saecro) {
+                    const channelMention = gptChannelId ? `<#${gptChannelId}>` : 'the specified channel';
+                    return await message.channel.send(`The \`!gpt\` command can only be used in ${channelMention}.`);
+                }
             }
 
             // Check if user is in validGptRoleIds collection
@@ -989,22 +1111,24 @@ client.on('messageCreate', async message => {
             if (prompt) {
                 await message.channel.sendTyping();
                 const response = await chatWithAssistant(userId, prompt);
-                await message.channel.send(response);
+                await sendMessageInParts(message.channel, response);
             } else {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            const valid = isValidGptRoleId(userId);
+            const valid = await isValidGptRoleId(userId);
             const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
             const gptDrawChannelId = gptChannelDoc ? gptChannelDoc.gptDrawChannelId : null;
 
             if (!gptDrawChannelId || message.channel.id !== gptDrawChannelId) {
-                const channelMention = gptDrawChannelId ? `<#${gptDrawChannelId}>` : 'the specified channel';
-                return await message.channel.send(`The \`!gptdraw\` command can only be used in ${channelMention}.`);
+                if (userId !== saecro) {
+                    const channelMention = gptDrawChannelId ? `<#${gptDrawChannelId}>` : 'the specified channel';
+                    return await message.channel.send(`The \`!gptdraw\` command can only be used in ${channelMention}.`);
+                }
             }
 
             // Check if user is in validGptRoleIds collection
-            if (!await isValidGptRoleId(userId)) {
+            if (!valid) {
                 return await message.channel.send('You do not have permission to use this command. Ask Saecro for permission.');
             }
 
@@ -1026,21 +1150,25 @@ client.on('messageCreate', async message => {
             if (prompt) {
                 try {
                     await message.channel.sendTyping();
-                    const base64Image = await drawWithAssistant(prompt);
-                    if (!base64Image.error) {
-                        if (base64Image) {
-                            await message.channel.send({
-                                files: [{
-                                    attachment: Buffer.from(base64Image, 'base64'),
-                                    name: 'drawn_image.png'
-                                }]
-                            });
-                        } else {
-                            await message.channel.send('Failed to generate image.');
-                            cooldowns.gptdraw.delete(userId);
-                        }
+                    const data = await drawWithAssistant(prompt);
+                    if (data.error) {
+                        throw new Error(data.error.message);
+                    }
+                    const base64Image = data.imageData;
+                    console.log(base64Image)
+                    const newPrompt = data.updatedDetail;
+                    console.log(newPrompt)
+                    if (base64Image) {
+                        await message.channel.send('prompt:```' + newPrompt + '```');
+                        await message.channel.send({
+                            files: [{
+                                attachment: Buffer.from(base64Image, 'base64'),
+                                name: 'drawn_image.png'
+                            }]
+                        })
                     } else {
-                        await message.channel.send(base64Image.error.message);
+                        await message.channel.send('Failed to generate image.');
+                        cooldowns.gptdraw.delete(userId);
                     }
                 } catch (error) {
                     console.error('Error handling !gptdraw command:', error);
@@ -1133,10 +1261,11 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have permission to use this command.');
             }
         } else if (command === '!skull') {
-            let userId = message.author.id;
             if (isAdmin(message.member) || userId === saecro) {
                 let roleId = args[1];
-                if (roleId) {
+                let duration = args[2];
+
+                if (roleId && duration) {
                     const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
                     if (roleMentionMatch) {
                         roleId = roleMentionMatch[1];
@@ -1146,15 +1275,28 @@ client.on('messageCreate', async message => {
                         return await message.channel.send('Please provide a valid role ID.');
                     }
 
-                    if (roleIDs.includes(roleId)) {
-                        await removeRoleID(roleId);
-                        return await message.channel.send(`Removed role ID ${roleId} from the list.`);
-                    } else {
-                        await addRoleID(roleId);
-                        return await message.channel.send(`Added role ID ${roleId} to the list.`);
+                    const durationMatch = duration.match(/^(\d+)([smhd])$/);
+                    if (!durationMatch) {
+                        return await message.channel.send('Please provide a valid duration (e.g., 10s, 5m, 1h, 1d).');
                     }
+
+                    const [_, time, unit] = durationMatch;
+                    const milliseconds = {
+                        's': 1000,
+                        'm': 60 * 1000,
+                        'h': 60 * 60 * 1000,
+                        'd': 24 * 60 * 60 * 1000
+                    }[unit] * parseInt(time, 10);
+
+                    await addRoleID(roleId);
+                    await message.channel.send(`Role ID ${roleId} has been added to the skull list for ${duration}.`);
+
+                    schedule.scheduleJob(Date.now() + milliseconds, async () => {
+                        await removeRoleID(roleId);
+                        await message.channel.send(`Role ID ${roleId} has been removed from the skull list after ${duration}.`);
+                    });
                 } else {
-                    return await message.channel.send('You need to mention a role.');
+                    return await message.channel.send('You need to mention a role and provide a duration.');
                 }
             } else {
                 return await message.channel.send('You do not have permission to use this command.');
@@ -1204,13 +1346,8 @@ client.on('messageCreate', async message => {
                 message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
         } else if (command === '!rape') {
-            // Get the user mentioned in the message
             let user = message.mentions.users.first();
-
-            // Get the member object of the message author
             let member = message.guild.members.cache.get(message.author.id);
-
-            // Check if the member has one of the specified role IDs
             const hasRequiredRole = member.roles.cache.some(role =>
                 ['1210746667427561563', '1138038219775160441'].includes(role.id)
             );
@@ -1219,30 +1356,41 @@ client.on('messageCreate', async message => {
                 message.channel.send("your greenie ass can't rape anyone");
                 return;
             }
-
-            if (user.id === '1242601206627434708') {
-                return message.channel.send("you can't rape the bot nigga.")
-            }
-
             if (user) {
-                if ((user.id !== saecro || message.author.id === '989718366317056062') &&
-                    user.id !== '989718366317056062') {
-                    const randomGifPath = getRandomGif();
-                    const embed = new Discord.EmbedBuilder()
-                        .setDescription(`<@${user.id}> has been raped!`)
-                        .setImage(`attachment://${path.basename(randomGifPath)}`)
-                        .setColor('#FF0000'); // Optional: Set the color of the embed
 
-                    message.channel.send({
-                        embeds: [embed],
-                        files: [{
-                            attachment: randomGifPath,
-                            name: path.basename(randomGifPath)
-                        }]
-                    });
-                } else {
-                    message.channel.send(`${user.username} cannot be raped`);
+                if (user.id === '1242601206627434708') {
+                    return message.channel.send("you can't rape the bot nigga.")
                 }
+                console.log(user.id, userId)
+                if (user.id !== userId) {
+                    if ((user.id !== saecro || message.author.id === c) &&
+                        user.id !== c) {
+                        if (user.id !== angie || userId === saecro) {
+                            const randomGifPath = getRandomGif();
+                            const embed = new Discord.EmbedBuilder()
+                                .setDescription(`<@${user.id}> has been raped!`)
+                                .setImage(`attachment://${path.basename(randomGifPath)}`)
+                                .setColor('#FF0000');
+
+                            return await message.channel.send({
+                                embeds: [embed],
+                                files: [{
+                                    attachment: randomGifPath,
+                                    name: path.basename(randomGifPath)
+                                }]
+                            });
+                        }
+                        else {
+                            return await message.channel.send(`${user.username} cannot be raped`);
+                        }
+                    } else {
+                        return await message.channel.send(`${user.username} cannot be raped`);
+                    }
+                } else {
+                    return await message.channel.send(`<@${userId}> you can't rape yourself 😭😭, go masturbate.`)
+                }
+            } else {
+                return await message.channel.send('you need to rape someone.')
             }
         } else if (command === '!aura') {
             console.log('getting aura');
@@ -1386,7 +1534,7 @@ client.on('messageCreate', async message => {
 
                 await message.channel.send(`Successfully donated ${amount} coins to ${mentionedUser.username}.`);
             }
-        } else if (command === '!leaderboard') {
+        } else if (command === '!leaderboard' || command === '!lb') {
             await leaderboard(message);
         } else if (command === '!startdebugchess') {
             if (userId === saecro) {
@@ -1416,6 +1564,57 @@ client.on('messageCreate', async message => {
                     message.channel.send(`\`\`\`${stdout}\`\`\``);
                 });
             }
+        } else if (command === '!notes') {
+            if (isAdmin(message.member)) {
+                await sendNotesEmbeds(message.channel);
+            }
+        } else if (command === '!forget') {
+            await aiMessages.deleteMany({})
+            await message.channel.send('history reset for AI')
+        } else if (command === '!cleartimeout') {
+            if (!isAdmin(message.member)) {
+                return await message.channel.send('You do not have permission to use this command.');
+            }
+
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return await message.channel.send('Please mention a user to clear the timeout.');
+            }
+
+            // Clear both GPT and GPT Draw command cooldowns
+            cooldowns.gpt.delete(mentionedUser.id);
+            cooldowns.gptdraw.delete(mentionedUser.id);
+
+            await message.channel.send(`Timeout for user ${mentionedUser.username} has been cleared for both GPT commands.`);
+        } else if (command === '!lines') {
+            const baseDir = path.join(__dirname);  // Parent directory of the current directory
+            const extensionsToCount = ['.js', '.ejs', '.css'];
+            const allFiles = getAllFiles(__dirname, extensionsToCount);
+
+            let totalLines = 0;
+            let output = '';
+            let partMessages = [];
+
+            for (const file of allFiles) {
+                const lines = countLines(file);
+                const relativeFilePath = path.relative(baseDir, file);
+                const newLine = `lines in ${relativeFilePath}: ${lines}\n`;
+                if ((output + newLine).length > 2000) {
+                    partMessages.push(output);
+                    output = '';
+                }
+                output += newLine;
+                totalLines += lines;
+            }
+
+            partMessages.push(output);
+            partMessages.push(`Total lines of code: ${totalLines}`);
+
+            for (const part of partMessages) {
+                await sendInChunks(message.channel, part);
+            }
+        } else if (command === '!nuke') {
+            await message.channel.send('Nuking the server...')
         }
     }
 });
@@ -1590,16 +1789,7 @@ function loadNotes() {
     return notesData;
 }
 
-// Function to send the notes embeds
-async function sendNotesEmbeds() {
-    const userId = '805009105855971329'; // Replace with your specific user ID
-    const user = await client.users.fetch(userId);
-
-    if (!user) {
-        console.error('Failed to send notes embed. User not found.');
-        return;
-    }
-
+async function sendNotesEmbeds(channel) {
     const notesData = loadNotes();
     const userIds = Object.keys(notesData);
 
@@ -1643,10 +1833,10 @@ async function sendNotesEmbeds() {
                     .setStyle(Discord.ButtonStyle.Danger)
             );
 
-        const message = await user.send({ embeds: [embed], components: [row] });
+        const message = await channel.send({ embeds: [embed], components: [row] });
 
-        const filter = i => i.user.id === saecro; // Replace with your Discord user ID
-        const collector = message.createMessageComponentCollector({ filter, time: 60000 });
+        const filter = i => i.user.id === saecro; // Ensure only the user with the ID stored in 'saecro' can click the buttons
+        const collector = message.createMessageComponentCollector({ filter, idle: 60000 }); // Set to 60 seconds of inactivity
 
         collector.on('collect', async i => {
             if (i.customId === 'prevUser' && currentUserIndex > 0) {
@@ -1732,6 +1922,3 @@ function scheduleDailyTask(hours, minutes, seconds, task) {
         setInterval(task, 24 * 60 * 60 * 1000);
     }, timeUntilNextExecution);
 }
-
-// Schedule the sendNotesEmbeds function to run every day at 8 AM
-scheduleDailyTask(8, 0, 0, sendNotesEmbeds);

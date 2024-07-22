@@ -5,7 +5,9 @@ module.exports = {
             script: 'index.js',
             watch: true,
             ignore_watch: [
-                "notes.json"
+                "notes.json",
+                '.git',
+                'node_modules'
             ],
             max_restarts: 5,
             restart_delay: 5000,

@@ -1,44 +1,50 @@
-// Import the discord.js module
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Poll } = require('discord.js');
 require('dotenv').config()
-// Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
-
-// Token of your bot
-
-// Guild and user ID you want to ban
-const guildId = '1131410686975684739';
-const userId = '989853033271808030';
-
-// When the client is ready, run this code
-client.once('ready', async () => {
-  console.log('Ready!');
-
-  try {
-    // Fetch the guild
-    const guild = await client.guilds.fetch(guildId);
-    if (!guild) {
-      console.error('Guild not found!');
-      return;
-    }
-
-    // Fetch the member
-    const member = await guild.members.fetch(userId);
-    if (!member) {
-      console.error('Member not found!');
-      return;
-    }
-
-    // Ban the member
-    await member.ban({ reason: 'Banned by bot script' });
-    console.log(`Banned ${member.user.tag} from ${guild.name}`);
-  } catch (error) {
-    console.error('Error banning member:', error);
-  } finally {
-    // Log out the client after operation
-    client.destroy();
-  }
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildMembers
+    ]
 });
 
-// Login to Discord with your bot's token
+const guildId = '1131410686975684739';
+const channelId = '1261996162597257308';
+
+client.once('ready', async () => {
+    console.log('Ready!');
+
+    // Fetch the guild and channel
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) {
+        console.error('Guild not found');
+        return;
+    }
+
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel || !channel.isTextBased()) {
+        console.error('Channel not found or not a text channel');
+        return;
+    }
+
+    try {
+        // Create the poll
+        const poll = new Poll({
+            question: 'saecro for mod?',
+            answers: ['Yes', 'No'],
+            allowMultiselect: false,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        });
+
+        // Send the poll to the channel
+        const pollMessage = await poll.send(channel);
+
+        console.log('Poll created successfully:', pollMessage.url);
+    } catch (error) {
+        console.error('Error creating poll:', error);
+    }
+});
+
 client.login(process.env.DISCORD_TOKEN);

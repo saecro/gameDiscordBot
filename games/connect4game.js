@@ -2,7 +2,6 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-
 const mongo = new MongoClient(process.env.MONGO_URI);
 const database = mongo.db('discordGameBot');
 const connect4Games = database.collection('Games');
@@ -82,7 +81,7 @@ async function updateBoardMessage(client, message, board, currentPlayer, opponen
     });
 
     const filter = i => i.user.id === currentPlayer;
-    const collector = sentMessage.createMessageComponentCollector({ filter, time: 15000 });
+    const collector = sentMessage.createMessageComponentCollector({ filter, time: 60000 });
 
     collector.on('collect', async interaction => {
         if (interaction.customId.startsWith('column_')) {
@@ -92,8 +91,12 @@ async function updateBoardMessage(client, message, board, currentPlayer, opponen
         await interaction.deferUpdate();
     });
 
-    collector.on('end', collected => {
-        sentMessage.edit({ components: [] }).catch(console.error);
+    collector.on('end', async collected => {
+        if (collected.size === 0) {
+            await endConnect4Game(message, [currentPlayer, opponentId], `<@${currentPlayer}> took too long to play. Game over.`);
+        } else {
+            sentMessage.edit({ components: [] }).catch(console.error);
+        }
     });
 }
 
@@ -134,7 +137,7 @@ async function getPlayerGameKey(playerId) {
 }
 
 function checkWin(board) {
-    
+
     for (let row = 0; row < ROWS; row++) {
         for (let col = 0; col < COLUMNS - 3; col++) {
             if (board[row][col] !== PLAYER_COLORS.empty &&
