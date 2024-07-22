@@ -479,7 +479,7 @@ async function generateDrawingPromptWithAssistant(userMessage) {
 
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4",
+            model: "gpt-4o-mini",
             messages: conversation_history,
         });
         const detailedPrompt = response.choices[0].message.content;
@@ -1155,7 +1155,6 @@ client.on('messageCreate', async message => {
                         throw new Error(data.error.message);
                     }
                     const base64Image = data.imageData;
-                    console.log(base64Image)
                     const newPrompt = data.updatedDetail;
                     console.log(newPrompt)
                     if (base64Image) {
@@ -1266,6 +1265,41 @@ client.on('messageCreate', async message => {
                 let duration = args[2];
 
                 if (roleId && duration) {
+                    if (!await roleCollection.findOne({ roleId })) {
+
+                        const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
+                        if (roleMentionMatch) {
+                            roleId = roleMentionMatch[1];
+                        }
+
+                        if (!/^\d+$/.test(roleId)) {
+                            return await message.channel.send('Please provide a valid role ID.');
+                        }
+
+                        const durationMatch = duration.match(/^(\d+)([smhd])$/);
+                        if (!durationMatch) {
+                            return await message.channel.send('Please provide a valid duration (e.g., 10s, 5m, 1h, 1d).');
+                        }
+
+                        const [_, time, unit] = durationMatch;
+                        const milliseconds = {
+                            's': 1000,
+                            'm': 60 * 1000,
+                            'h': 60 * 60 * 1000,
+                            'd': 24 * 60 * 60 * 1000
+                        }[unit] * parseInt(time, 10);
+
+                        await addRoleID(roleId);
+                        await message.channel.send(`Role ID ${roleId} has been added to the skull list for ${duration}.`);
+
+                        schedule.scheduleJob(Date.now() + milliseconds, async () => {
+                            await removeRoleID(roleId);
+                            await message.channel.send(`Role ID ${roleId} has been removed from the skull list after ${duration}.`);
+                        });
+                    } else {
+                        return await message.channel.send('This role already has autoskull')
+                    }
+                } else {
                     const roleMentionMatch = roleId.match(/^<@&(\d+)>$/);
                     if (roleMentionMatch) {
                         roleId = roleMentionMatch[1];
@@ -1275,28 +1309,13 @@ client.on('messageCreate', async message => {
                         return await message.channel.send('Please provide a valid role ID.');
                     }
 
-                    const durationMatch = duration.match(/^(\d+)([smhd])$/);
-                    if (!durationMatch) {
-                        return await message.channel.send('Please provide a valid duration (e.g., 10s, 5m, 1h, 1d).');
+                    if (!await roleCollection.findOne({ roleId })) {
+                        await addRoleID(roleId);
+                        await message.channel.send(`Role ID ${roleId} has been added to the skull list.`);
+                    } else {
+                        await removeRoleID(roleId)
+                        await message.channel.send(`Role ID ${roleId} has been removed from the skull list.`);
                     }
-
-                    const [_, time, unit] = durationMatch;
-                    const milliseconds = {
-                        's': 1000,
-                        'm': 60 * 1000,
-                        'h': 60 * 60 * 1000,
-                        'd': 24 * 60 * 60 * 1000
-                    }[unit] * parseInt(time, 10);
-
-                    await addRoleID(roleId);
-                    await message.channel.send(`Role ID ${roleId} has been added to the skull list for ${duration}.`);
-
-                    schedule.scheduleJob(Date.now() + milliseconds, async () => {
-                        await removeRoleID(roleId);
-                        await message.channel.send(`Role ID ${roleId} has been removed from the skull list after ${duration}.`);
-                    });
-                } else {
-                    return await message.channel.send('You need to mention a role and provide a duration.');
                 }
             } else {
                 return await message.channel.send('You do not have permission to use this command.');
