@@ -771,7 +771,7 @@ client.on('messageCreate', async message => {
     for (const roleId of roleIDs) {
         if (message.member.roles.cache.has(roleId)) {
             try {
-                message.react('💀').catch(console.error);
+                await message.react('💀')
             } catch (e) {
                 console.log('message missing')
             }
@@ -825,7 +825,20 @@ client.on('messageCreate', async message => {
 
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
-                return message.channel.send('Please mention a user to blacklist.');
+                const blacklistedUsers = await blacklistCollection.find({}).toArray();
+
+                console.log(blacklistedUsers)
+                let Description = ''
+                blacklistedUsers.forEach((user, index) => {
+                    Description += `${index}. <@${user.userId}>\n`;
+                });
+                const embed = new Discord.EmbedBuilder()
+                    .setTitle(`Blacklisted Users`)
+                    .setDescription(Description)
+                    .setColor('#ff0000');
+
+                return await message.channel.send({ embeds: [embed] });
+
             }
 
             const blacklistedUser = await blacklistCollection.findOne({ userId: mentionedUser.id });
@@ -1863,15 +1876,17 @@ async function sendNotesEmbeds(channel) {
             } else if (i.customId === 'nextUser' && currentUserIndex < userIds.length - 1) {
                 currentUserIndex++;
             } else if (i.customId === 'blacklistUser') {
+
                 const targetUserId = userIds[currentUserIndex];
+                console.log(targetUserId)
                 const blacklistedUser = await blacklistCollection.findOne({ userId: targetUserId });
 
                 if (blacklistedUser) {
                     await blacklistCollection.deleteOne({ userId: targetUserId });
-                    await user.send(`Removed ${client.users.cache.get(targetUserId).tag} from the blacklist.`);
+                    await channel.send(`Removed ${client.users.cache.get(targetUserId).tag} from the blacklist.`);
                 } else {
                     await blacklistCollection.insertOne({ userId: targetUserId });
-                    await user.send(`Added ${client.users.cache.get(targetUserId).tag} to the blacklist.`);
+                    await channel.send(`Added ${client.users.cache.get(targetUserId).tag} to the blacklist.`);
                 }
                 return;
             }
