@@ -768,6 +768,9 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
 
+    if(message.content.includes('coomer.su')) {
+        message.delete()
+    }
     for (const roleId of roleIDs) {
         if (message.member.roles.cache.has(roleId)) {
             try {

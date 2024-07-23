@@ -22,7 +22,7 @@ const payouts = {
     "🔔🔔🔔": 12.0,
     "⭐⭐⭐": 25.0,
     "🍒🍒X": 0.5,
-    "🍒X🍒": 0.5,   
+    "🍒X🍒": 0.5,
     "X🍒🍒": 0.5,
     "🍋🍋X": 1.0,
     "🍋X🍋": 1.0,
@@ -144,13 +144,15 @@ async function slotMachineGame(message, bet) {
     let resultText;
     let gifPath;
 
+    newAmount = userMoney - bet + payout;
     if (payout > bet) {
-        newAmount = userMoney + payout;
         resultText = `Congratulations! You won ${payout} coins! Your new balance is ${newAmount}.`;
         gifPath = path.join(__dirname, '..', 'gambleGifs', 'win.gif');
-    } else {
-        newAmount = userMoney - bet;
+    } else if (payout < bet) {
         resultText = `Sorry, you lost. You made ${payout}. Your new balance is ${newAmount}.`;
+        gifPath = path.join(__dirname, '..', 'gambleGifs', 'lose.gif');
+    } else {
+        resultText = `You win nothing. You made ${payout}. Your new balance is ${newAmount}.`;
         gifPath = path.join(__dirname, '..', 'gambleGifs', 'lose.gif');
     }
     resultText = `You staked ${bet}.\n\n` + resultText;
