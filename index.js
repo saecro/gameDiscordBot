@@ -466,52 +466,6 @@ async function chatWithAssistant(userId, userMessage) {
     return assistantMessage;
 }
 
-async function generateDrawingPromptWithAssistant(userMessage) {
-    console.log(`Generating drawing prompt with assistant, userMessage: ${userMessage}`);
-
-    const conversation_history = [
-        {
-            role: 'system',
-            content: `You are an AI specialized in creating prompts for art generation. The user will provide a basic idea, and your task is to expand on that idea with some added descriptions, including elements such as setting, characters, colors, and mood. Your response should be a single, concise prompt suitable for input into an AI art generator. Ensure it captures the user's request specifically, without adding too much detail.`,
-        },
-        { role: "user", content: userMessage }
-    ];
-
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: conversation_history,
-        });
-        const detailedPrompt = response.choices[0].message.content;
-
-        console.log(`Detailed prompt generated: ${detailedPrompt}`);
-        return detailedPrompt;
-    } catch (error) {
-        console.error('Error generating detailed prompt:', error);
-        return error;
-    }
-}
-
-function splitText(text, maxLength) {
-    const lines = text.split('\n');
-    const chunks = [];
-    let currentChunk = '';
-
-    lines.forEach(line => {
-        if (currentChunk.split('\n').length + 1 > maxLength) {
-            chunks.push(currentChunk);
-            currentChunk = '';
-        }
-        currentChunk += line + '\n';
-    });
-
-    if (currentChunk) {
-        chunks.push(currentChunk);
-    }
-
-    return chunks;
-}
-
 async function setTimezone(message, location, userId) {
     console.log(`Setting timezone for userId: ${userId}, location: ${location}`);
 
@@ -561,29 +515,69 @@ async function showTimezone(message, userId) {
 }
 
 async function drawWithAssistant(userMessage) {
-    console.log(`Drawing with assistant, userMessage: ${userMessage}`);
     try {
-        const detailedPrompt = await generateDrawingPromptWithAssistant(userMessage);
+        const sendRequest = {
+            method: "post",
+            url: "https://api.imaginepro.ai/api/v1/midjourney/imagine",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.MIDJOURNEY_API_KEY}`,
+            },
+            data: {
+                prompt: userMessage,
+            },
+        };
 
-        const response = await openai.images.generate({
-            model: "dall-e-3",
-            prompt: detailedPrompt,
-            n: 1,
-            size: "1792x1024",
-        });
+        // Make the initial request to start the image generation
+        const response = await axios(sendRequest);
+        console.log(response.data)
+        const messageId = response.data.messageId; // Assuming the response contains a messageId
+        const grabRequest = {
+            method: "get",
+            url: `https://api.imaginepro.ai/api/v1/midjourney/message/${messageId}`,
+            headers: {
+                Authorization: `Bearer ${process.env.MIDJOURNEY_API_KEY}`,
+            },
+        };
 
-        const imageUrl = response.data[0].url;
-        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+        // Polling function
+        const pollRequest = (grabRequest, interval = 1000) => {
+            return new Promise((resolve, reject) => {
+                const poll = async () => {
+                    try {
+                        const newResponse = await axios(grabRequest);
+                        console.log(newResponse.data);
+
+                        if (newResponse.data.status === 'DONE') {
+                            clearInterval(polling);
+                            resolve(newResponse.data);
+                        }
+                    } catch (error) {
+                        clearInterval(polling);
+                        reject(error);
+                    }
+                };
+
+                const polling = setInterval(poll, interval);
+            });
+        };
+
+        // Start polling
+        const finalResponse = await pollRequest(grabRequest);
+
+        // Fetch the image data once the status is 'DONE'
+        const imageResponse = await axios.get(finalResponse.uri, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
         console.log('Image generated successfully');
         return {
-            updatedDetail: detailedPrompt,
+            updatedDetail: userMessage,
             imageData
-        }
+        };
+
     } catch (error) {
-        console.error('Error generating or fetching image:', error);
-        return { error: error.message };
+        console.error('Error generating image:', error);
+        throw error;
     }
 }
 
@@ -767,8 +761,12 @@ client.on('messageCreate', async message => {
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
-
-    if(message.content.includes('coomer.su')) {
+    if (command === '!gptdraw') {
+        if (!isAdmin(message.member)) {
+            return
+        }
+    }
+    if (message.content.includes('coomer.su')) {
         message.delete()
     }
     for (const roleId of roleIDs) {
@@ -829,12 +827,16 @@ client.on('messageCreate', async message => {
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
                 const blacklistedUsers = await blacklistCollection.find({}).toArray();
-
                 console.log(blacklistedUsers)
                 let Description = ''
-                blacklistedUsers.forEach((user, index) => {
-                    Description += `${index}. <@${user.userId}>\n`;
-                });
+                if (blacklistedUsers) {
+                    blacklistedUsers.forEach((user, index) => {
+                        Description += `${index}. <@${user.userId}>\n`;
+                    });
+                } else {
+                    Description = 'No Blacklisted Users'
+                }
+
                 const embed = new Discord.EmbedBuilder()
                     .setTitle(`Blacklisted Users`)
                     .setDescription(Description)
@@ -1166,20 +1168,66 @@ client.on('messageCreate', async message => {
             if (prompt) {
                 try {
                     await message.channel.sendTyping();
-                    const data = await drawWithAssistant(prompt);
-                    if (data.error) {
-                        throw new Error(data.error.message);
-                    }
-                    const base64Image = data.imageData;
-                    const newPrompt = data.updatedDetail;
-                    console.log(newPrompt)
+                    // const data = await drawWithAssistant(prompt);
+                    // if (data.error) {
+                    //     throw new Error(data.error.message);
+                    // }
+                    // let base64Image = data.imageData;
+                    // const newPrompt = data.updatedDetail;
+                    // console.log(newPrompt)
+
+                    const row1 = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId('U1')
+                                .setLabel('U1')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('U2')
+                                .setLabel('U2')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('U3')
+                                .setLabel('U3')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('U4')
+                                .setLabel('U4')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('↺')
+                                .setLabel('↺')
+                                .setStyle(Discord.ButtonStyle.Danger),
+                        );
+
+                    const row2 = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId('V1')
+                                .setLabel('V1')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('V2')
+                                .setLabel('V2')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('V3')
+                                .setLabel('V3')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('V4')
+                                .setLabel('V4')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                        );
+
+                    let base64Image = `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`
                     if (base64Image) {
-                        await message.channel.send('prompt:```' + newPrompt + '```');
+                        await message.channel.send('prompt:``' + 'newPrompt' + '``');
                         await message.channel.send({
                             files: [{
                                 attachment: Buffer.from(base64Image, 'base64'),
                                 name: 'drawn_image.png'
-                            }]
+                            }], components: [row1, row2]
                         })
                     } else {
                         await message.channel.send('Failed to generate image.');
@@ -1400,24 +1448,20 @@ client.on('messageCreate', async message => {
                 if (user.id !== userId) {
                     if ((user.id !== saecro || message.author.id === c) &&
                         user.id !== c) {
-                        if (user.id !== angie || userId === saecro) {
-                            const randomGifPath = getRandomGif();
-                            const embed = new Discord.EmbedBuilder()
-                                .setDescription(`<@${user.id}> has been raped!`)
-                                .setImage(`attachment://${path.basename(randomGifPath)}`)
-                                .setColor('#FF0000');
+                        const randomGifPath = getRandomGif();
+                        const embed = new Discord.EmbedBuilder()
+                            .setDescription(`<@${user.id}> has been raped!`)
+                            .setImage(`attachment://${path.basename(randomGifPath)}`)
+                            .setColor('#FF0000');
 
-                            return await message.channel.send({
-                                embeds: [embed],
-                                files: [{
-                                    attachment: randomGifPath,
-                                    name: path.basename(randomGifPath)
-                                }]
-                            });
-                        }
-                        else {
-                            return await message.channel.send(`${user.username} cannot be raped`);
-                        }
+                        return await message.channel.send({
+                            embeds: [embed],
+                            files: [{
+                                attachment: randomGifPath,
+                                name: path.basename(randomGifPath)
+                            }]
+                        });
+
                     } else {
                         return await message.channel.send(`${user.username} cannot be raped`);
                     }

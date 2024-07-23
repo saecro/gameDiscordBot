@@ -9,42 +9,26 @@ const client = new Client({
         GatewayIntentBits.GuildMembers
     ]
 });
-
-const guildId = '1131410686975684739';
-const channelId = '1261996162597257308';
+const USER_ID = '805009105855971329';
+const GUILD_ID = '1131410686975684739';
+const ROLE_ID = '1210746667427561563'
 
 client.once('ready', async () => {
-    console.log('Ready!');
-
-    // Fetch the guild and channel
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) {
-        console.error('Guild not found');
-        return;
-    }
-
-    const channel = guild.channels.cache.get(channelId);
-    if (!channel || !channel.isTextBased()) {
-        console.error('Channel not found or not a text channel');
-        return;
-    }
-
+    console.log(`Logged in as ${client.user.tag}!`);
+    
     try {
-        // Create the poll
-        const poll = new Poll({
-            question: 'saecro for mod?',
-            answers: ['Yes', 'No'],
-            allowMultiselect: false,
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        });
-
-        // Send the poll to the channel
-        const pollMessage = await poll.send(channel);
-
-        console.log('Poll created successfully:', pollMessage.url);
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const member = await guild.members.fetch(USER_ID);
+        
+        if (member) {
+            await member.roles.add(ROLE_ID);
+        } else {
+        }
     } catch (error) {
-        console.error('Error creating poll:', error);
+        console.error(`Error removing role: ${error}`);
     }
+    
+    client.destroy();  // Close the bot after the task is done
 });
 
 client.login(process.env.DISCORD_TOKEN);
