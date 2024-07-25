@@ -111,6 +111,7 @@ app.locals.db = database;
 const slotMachineGame = require('./games/slotMachineGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
+const sudokuGame = require('./games/sudokuGame.js');
 const chessGame = require('./games/chessgame.js');
 const mathGame = require('./games/mathGame.js');
 const greenTea = require('./games/greentea.js');
@@ -1434,7 +1435,7 @@ client.on('messageCreate', async message => {
             const hasRequiredRole = member.roles.cache.some(role =>
                 ['1210746667427561563', '1138038219775160441'].includes(role.id)
             );
-
+            let desc = `<@${user.id}> has been raped!`
             if (!hasRequiredRole) {
                 message.channel.send("your greenie ass can't rape anyone");
                 return;
@@ -1448,9 +1449,12 @@ client.on('messageCreate', async message => {
                 if (user.id !== userId) {
                     if ((user.id !== saecro || message.author.id === c) &&
                         user.id !== c) {
+                        if (user.id === '665804779141726221') {
+                            desc = `<@${user.id}> has been **EXTRA** raped`
+                        }
                         const randomGifPath = getRandomGif();
                         const embed = new Discord.EmbedBuilder()
-                            .setDescription(`<@${user.id}> has been raped!`)
+                            .setDescription(desc)
                             .setImage(`attachment://${path.basename(randomGifPath)}`)
                             .setColor('#FF0000');
 
@@ -1494,9 +1498,18 @@ client.on('messageCreate', async message => {
                 return await message.channel.send('You do not have enough money to donate that amount.');
             }
 
+            const twoHours = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+            const now = Date.now();
+
+            if (userCurrency.lastDonationTime && (now - userCurrency.lastDonationTime) < twoHours) {
+                const timeLeft = twoHours - (now - userCurrency.lastDonationTime);
+                const minutes = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+                return await message.channel.send(`You can donate again in ${minutes} minutes.`);
+            }
+
             await currencyCollection.updateOne(
                 { discordID: message.author.id },
-                { $inc: { money: -amount } }
+                { $inc: { money: -amount }, $set: { lastDonationTime: now } }
             );
 
             await currencyCollection.updateOne(
@@ -1505,6 +1518,7 @@ client.on('messageCreate', async message => {
             );
 
             await message.channel.send(`Successfully donated ${amount} coins to ${mentionedUser.username}.`);
+
         } else if (command === '!daily') {
             const dailyCooldown = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -1693,8 +1707,29 @@ client.on('messageCreate', async message => {
                 await sendInChunks(message.channel, part);
             }
         } else if (command === '!nuke') {
-            await message.channel.send('Nuking the server...')
+            if (userId === saecro) {
+                await message.channel.send('Nuking the server...')
+            }
+        } else if (command === '!ping') {
+            const sent = await message.channel.send('Pong!');
+            const latency = sent.createdTimestamp - message.createdTimestamp;
+            sent.edit(`Pong! Latency is ${latency}ms. API Latency is ${Math.round(client.ws.ping)}ms.`);
+        } else if (command === '!startsudoku') {
+            if (userId === saecro) {
+                const args = message.content.split(' ');
+                const difficulty = args[1] || 'easy';
+                await sudokuGame.startGame(message, difficulty);
+            }
         }
+    }
+});
+
+
+client.on('interactionCreate', async interaction => {
+    if (interaction.customId.includes(interaction.user.id)) {
+        console.log('\n\n')
+        console.log(`[interactionCreate] Interaction received: ${interaction.customId}`);
+        await sudokuGame.handleInteraction(interaction);
     }
 });
 
@@ -1974,32 +2009,4 @@ async function sendNotesEmbeds(channel) {
     };
 
     await sendEmbed(userIds[currentUserIndex]);
-}
-
-// Calculate the time until the next scheduled execution
-function getNextScheduledTime(hours, minutes, seconds) {
-    const now = new Date();
-    const next = new Date();
-
-    next.setHours(hours);
-    next.setMinutes(minutes);
-    next.setSeconds(seconds);
-    next.setMilliseconds(0);
-
-    if (next <= now) {
-        next.setDate(next.getDate() + 1); // Schedule for the next day if the time has already passed today
-    }
-
-    return next - now; // Return the time difference in milliseconds
-}
-
-function scheduleDailyTask(hours, minutes, seconds, task) {
-    const timeUntilNextExecution = getNextScheduledTime(hours, minutes, seconds);
-
-    // Schedule the first execution
-    setTimeout(() => {
-        task();
-        // Schedule subsequent executions every 24 hours
-        setInterval(task, 24 * 60 * 60 * 1000);
-    }, timeUntilNextExecution);
 }

@@ -30,6 +30,7 @@
     "passport-discord": "^0.1.4",
     "random-words": "^2.0.1",
     "socket.io": "^4.7.5",
+    "sudoku-gen": "^1.0.2",
     "trivia-api": "^1.0.1"
   },
   "devDependencies": {
