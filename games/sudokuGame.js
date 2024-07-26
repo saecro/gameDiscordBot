@@ -81,11 +81,11 @@ class SudokuGame {
                 .setDisabled(false);
             const row4 = new Discord.ActionRowBuilder().addComponents(returnButton);
             return [row1, row2, row3, row4];
-        } else if (gameData.showAssignCandidates) {
+        } else if (gameData.showAssignCandidates === 'assign') {
             const numberButtons = [];
             for (let i = 1; i <= 9; i++) {
                 numberButtons.push(new Discord.ButtonBuilder()
-                    .setCustomId(`${gameData.showAssignCandidates}_${userId}_${i}`)
+                    .setCustomId(`assign_${userId}_${i}`)
                     .setLabel(`${i}`)
                     .setStyle(Discord.ButtonStyle.Primary)
                     .setDisabled(false));
@@ -93,12 +93,31 @@ class SudokuGame {
             const row1 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(0, 3));
             const row2 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(3, 6));
             const row3 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(6, 9));
-            const cancelButton = new Discord.ButtonBuilder()
-                .setCustomId(`cancel_${userId}`)
-                .setLabel('Cancel')
+            const backButton = new Discord.ButtonBuilder()
+                .setCustomId(`back_${userId}`)
+                .setLabel('Back')
                 .setStyle(Discord.ButtonStyle.Danger)
                 .setDisabled(false);
-            const row4 = new Discord.ActionRowBuilder().addComponents(cancelButton);
+            const row4 = new Discord.ActionRowBuilder().addComponents(backButton);
+            return [row1, row2, row3, row4];
+        } else if (gameData.showAssignCandidates === 'candidates') {
+            const numberButtons = [];
+            for (let i = 1; i <= 9; i++) {
+                numberButtons.push(new Discord.ButtonBuilder()
+                    .setCustomId(`candidates_${userId}_${i}`)
+                    .setLabel(`${i}`)
+                    .setStyle(Discord.ButtonStyle.Primary)
+                    .setDisabled(false));
+            }
+            const row1 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(0, 3));
+            const row2 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(3, 6));
+            const row3 = new Discord.ActionRowBuilder().addComponents(numberButtons.slice(6, 9));
+            const backButton = new Discord.ButtonBuilder()
+                .setCustomId(`back_${userId}`)
+                .setLabel('Back')
+                .setStyle(Discord.ButtonStyle.Danger)
+                .setDisabled(false);
+            const row4 = new Discord.ActionRowBuilder().addComponents(backButton);
             return [row1, row2, row3, row4];
         } else {
             const assignButton = new Discord.ButtonBuilder()
@@ -166,34 +185,39 @@ class SudokuGame {
                 gameData.highlightCell = null;
                 console.log(`[handleInteraction] Cleared highlightGrid and highlightCell`);
             }
-        } else if (type === 'assign' || type === 'candidates') {
-            gameData.showAssignCandidates = type;
-        } else if (gameData.showAssignCandidates === 'assign') {
-            const cellIndex = gameData.highlightCell[0] * 9 + gameData.highlightCell[1];
-            gameData.game.puzzle = gameData.game.puzzle.substr(0, cellIndex) + index + gameData.game.puzzle.substr(cellIndex + 1);
-            console.log(`[handleInteraction] Assigned value ${index} to cell ${cellIndex}`);
+        } else if (type === 'assign') {
+            if (index === undefined) {
+                gameData.showAssignCandidates = 'assign';
+            } else {
+                const cellIndex = gameData.highlightCell[0] * 9 + gameData.highlightCell[1];
+                gameData.game.puzzle = gameData.game.puzzle.substr(0, cellIndex) + index + gameData.game.puzzle.substr(cellIndex + 1);
+                console.log(`[handleInteraction] Assigned value ${index} to cell ${cellIndex}`);
 
-            gameData.highlightGrid = null;
-            gameData.highlightCell = null;
-            gameData.showAssignCandidates = null;
-        } else if (type === 'cancel') {
+                gameData.highlightGrid = null;
+                gameData.highlightCell = null;
+                gameData.showAssignCandidates = null;
+            }
+        } else if (type === 'candidates') {
+            if (index === undefined) {
+                gameData.showAssignCandidates = 'candidates';
+            } else {
+                const cellIndex = gameData.highlightCell[0] * 9 + gameData.highlightCell[1];
+                if (!gameData.candidates[cellIndex]) {
+                    gameData.candidates[cellIndex] = [];
+                }
+                const cellCandidates = gameData.candidates[cellIndex];
+                const candidateIndex = cellCandidates.indexOf(parseInt(index));
+                if (candidateIndex >= 0) {
+                    cellCandidates.splice(candidateIndex, 1);
+                    console.log(`[handleInteraction] Removed candidate ${index} from cell ${cellIndex}`);
+                } else {
+                    cellCandidates.push(parseInt(index));
+                    console.log(`[handleInteraction] Added candidate ${index} to cell ${cellIndex}`);
+                }
+            }
+        } else if (type === 'back') {
             gameData.showAssignCandidates = null;
             console.log(`[handleInteraction] Cleared showAssignCandidates`);
-        } else if (gameData.showAssignCandidates === 'candidates') {
-            const cellIndex = gameData.highlightCell[0] * 9 + gameData.highlightCell[1];
-            if (!gameData.candidates[cellIndex]) {
-                gameData.candidates[cellIndex] = [];
-            }
-            const cellCandidates = gameData.candidates[cellIndex];
-            const candidateIndex = cellCandidates.indexOf(parseInt(index));
-            if (candidateIndex >= 0) {
-                cellCandidates.splice(candidateIndex, 1);
-                console.log(`[handleInteraction] Removed candidate ${index} from cell ${cellIndex}`);
-            } else {
-                cellCandidates.push(parseInt(index));
-                console.log(`[handleInteraction] Added candidate ${index} to cell ${cellIndex}`);
-            }
-            gameData.showAssignCandidates = null;
         }
 
         this.currentGames.set(userId, gameData);
