@@ -2,7 +2,7 @@ const { createCanvas } = require('canvas');
 
 const cellSize = 60;
 
-async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = null, candidates = []) {
+async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = null, candidates = [], predefinedNumbers = []) {
     const canvas = createCanvas(9 * cellSize, 9 * cellSize);
     const ctx = canvas.getContext('2d');
 
@@ -10,6 +10,7 @@ async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = nul
     const darkSquareColor = '#dddddd';
     const highlightColor = '#a4d4ff';
     const cellHighlightColor = '#4da6ff';
+    const userAddedColor = '#ff0000';
 
     for (let row = 0; row < 9; row++) {
         for (let col = 0; col < 9; col++) {
@@ -48,7 +49,7 @@ async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = nul
             const value = puzzle[row * 9 + col];
             if (value !== '-') {
                 ctx.font = '40px Arial';
-                ctx.fillStyle = '#000000';
+                ctx.fillStyle = predefinedNumbers.includes(row * 9 + col) ? '#000000' : userAddedColor;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(value, col * cellSize + cellSize / 2, row * cellSize + cellSize / 2);
@@ -58,7 +59,7 @@ async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = nul
             const cellCandidates = candidates[row * 9 + col];
             if (cellCandidates && cellCandidates.length > 0) {
                 ctx.font = '12px Arial';
-                ctx.fillStyle = '#000000';
+                ctx.fillStyle = '#00ffff';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 cellCandidates.forEach(candidate => {

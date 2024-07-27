@@ -8,12 +8,16 @@ class SudokuGame {
         this.currentGames = new Map();
     }
 
-    async startGame(message, difficulty = 'random') {
+    async startGame(message, difficulty) {
         console.log(`[startGame] User ${message.author.id} is starting a game with difficulty ${difficulty}`);
         const userId = message.author.id;
         const currentGame = getSudoku(difficulty);
+        const predefinedNumbers = currentGame.puzzle
+            .split('')
+            .map((char, index) => (char !== '-' ? index : null))
+            .filter((index) => index !== null);
         const candidates = Array(81).fill(null).map(() => []);
-        this.currentGames.set(userId, { game: currentGame, highlightGrid: null, highlightCell: null, messageId: null, candidates });
+        this.currentGames.set(userId, { game: currentGame, highlightGrid: null, highlightCell: null, messageId: null, candidates, predefinedNumbers });
 
         await this.sendBoard(message);
     }
@@ -27,11 +31,11 @@ class SudokuGame {
         }
 
         console.log(`[sendBoard] Sending board for user ${userId}`);
-        const { game, highlightGrid, highlightCell, messageId, candidates } = gameData;
+        const { game, highlightGrid, highlightCell, messageId, candidates, predefinedNumbers } = gameData;
         console.log(`[sendBoard] Current puzzle: ${game.puzzle}`);
         console.log(`[sendBoard] Current candidates:`, candidates);
 
-        const boardBuffer = await drawSudokuBoard(game.puzzle, highlightGrid, highlightCell, candidates);
+        const boardBuffer = await drawSudokuBoard(game.puzzle, highlightGrid, highlightCell, candidates, predefinedNumbers);
 
         if (messageId) {
             const previousMessage = await context.channel.messages.fetch(messageId).catch(() => null);
@@ -51,6 +55,7 @@ class SudokuGame {
     getComponents(userId, gameData) {
         console.log(`[getComponents] Generating components for user ${userId}`);
         const buttons = [];
+
         if (!gameData.highlightGrid) {
             for (let i = 0; i < 9; i++) {
                 buttons.push(new Discord.ButtonBuilder()
@@ -62,14 +67,38 @@ class SudokuGame {
             const row1 = new Discord.ActionRowBuilder().addComponents(buttons.slice(0, 3));
             const row2 = new Discord.ActionRowBuilder().addComponents(buttons.slice(3, 6));
             const row3 = new Discord.ActionRowBuilder().addComponents(buttons.slice(6, 9));
-            return [row1, row2, row3];
+            const completeButton = new Discord.ButtonBuilder()
+                .setCustomId(`complete_${userId}`)
+                .setLabel('Complete')
+                .setStyle(Discord.ButtonStyle.Success)
+                .setDisabled(false);
+            const giveUpButton = new Discord.ButtonBuilder()
+                .setCustomId(`giveup_${userId}`)
+                .setLabel('Give Up')
+                .setStyle(Discord.ButtonStyle.Danger)
+                .setDisabled(false);
+            const row4 = new Discord.ActionRowBuilder().addComponents(completeButton, giveUpButton);
+            return [row1, row2, row3, row4];
         } else if (!gameData.highlightCell) {
+            const [gridRow, gridCol] = gameData.highlightGrid;
+            const disablePositions = new Set();
+
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    const cellIndex = (gridRow * 3 + i) * 9 + (gridCol * 3 + j);
+                    const value = gameData.game.puzzle[cellIndex];
+                    if (value !== '-') {
+                        disablePositions.add(i * 3 + j);
+                    }
+                }
+            }
+
             for (let i = 0; i < 9; i++) {
                 buttons.push(new Discord.ButtonBuilder()
                     .setCustomId(`cell_${userId}_${i}`)
                     .setLabel(`${i + 1}`)
                     .setStyle(Discord.ButtonStyle.Primary)
-                    .setDisabled(false));
+                    .setDisabled(disablePositions.has(i)));
             }
             const row1 = new Discord.ActionRowBuilder().addComponents(buttons.slice(0, 3));
             const row2 = new Discord.ActionRowBuilder().addComponents(buttons.slice(3, 6));
@@ -162,6 +191,8 @@ class SudokuGame {
             return;
         }
 
+        await interaction.deferUpdate(); // Defer the interaction
+
         console.log(`[handleInteraction] Handling button press for user ${userId}, type=${type}, index=${index}`);
         if (type === 'grid') {
             gameData.highlightGrid = [Math.floor(index / 3), index % 3];
@@ -193,6 +224,9 @@ class SudokuGame {
                 gameData.game.puzzle = gameData.game.puzzle.substr(0, cellIndex) + index + gameData.game.puzzle.substr(cellIndex + 1);
                 console.log(`[handleInteraction] Assigned value ${index} to cell ${cellIndex}`);
 
+                // Clear candidates for the cell
+                gameData.candidates[cellIndex] = [];
+
                 gameData.highlightGrid = null;
                 gameData.highlightCell = null;
                 gameData.showAssignCandidates = null;
@@ -215,6 +249,22 @@ class SudokuGame {
                     console.log(`[handleInteraction] Added candidate ${index} to cell ${cellIndex}`);
                 }
             }
+        } else if (type === 'complete') {
+            const puzzle = gameData.game.puzzle;
+            const solution = gameData.game.solution;
+            console.log(puzzle)
+            console.log(solution)
+            if (puzzle === solution) {
+                await interaction.channel.send({ content: 'Congratulations! You have completed the puzzle correctly.' });
+                this.currentGames.delete(userId);
+                return; // Exit early to avoid sending another board
+            } else {
+                await interaction.channel.send({ content: 'The puzzle is not yet solved correctly. Please keep trying!' });
+            }
+        } else if (type === 'giveup') {
+            await interaction.channel.send({ content: 'You have given up on this puzzle. Better luck next time!' });
+            this.currentGames.delete(userId);
+            return; // Exit early to avoid sending another board
         } else if (type === 'back') {
             gameData.showAssignCandidates = null;
             console.log(`[handleInteraction] Cleared showAssignCandidates`);
@@ -222,7 +272,6 @@ class SudokuGame {
 
         this.currentGames.set(userId, gameData);
         await this.sendBoard(interaction);
-        await interaction.deferUpdate();
         console.log(`[handleInteraction] Interaction handling complete for user ${userId}`);
     }
 }

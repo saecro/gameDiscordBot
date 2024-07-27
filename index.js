@@ -1715,10 +1715,12 @@ client.on('messageCreate', async message => {
             const latency = sent.createdTimestamp - message.createdTimestamp;
             sent.edit(`Pong! Latency is ${latency}ms. API Latency is ${Math.round(client.ws.ping)}ms.`);
         } else if (command === '!startsudoku') {
-            if (userId === saecro) {
-                const args = message.content.split(' ');
-                const difficulty = args[1] || 'easy';
+            const args = message.content.split(' ');
+            if (args[1]) {
+                const difficulty = args[1];
                 await sudokuGame.startGame(message, difficulty);
+            } else {
+                await message.channel.send('You need to specify the difficulty: `!startsudoku easy | medium | hard | expert`')
             }
         }
     }
