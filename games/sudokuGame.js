@@ -81,24 +81,18 @@ class SudokuGame {
             return [row1, row2, row3, row4];
         } else if (!gameData.highlightCell) {
             const [gridRow, gridCol] = gameData.highlightGrid;
-            const disablePositions = new Set();
-
-            for (let i = 0; i < 3; i++) {
-                for (let j = 0; j < 3; j++) {
-                    const cellIndex = (gridRow * 3 + i) * 9 + (gridCol * 3 + j);
-                    const value = gameData.game.puzzle[cellIndex];
-                    if (value !== '-') {
-                        disablePositions.add(i * 3 + j);
-                    }
-                }
-            }
-
             for (let i = 0; i < 9; i++) {
+                const cellRow = Math.floor(i / 3);
+                const cellCol = i % 3;
+                const absoluteRow = gridRow * 3 + cellRow;
+                const absoluteCol = gridCol * 3 + cellCol;
+                const cellIndex = absoluteRow * 9 + absoluteCol;
+                const isDisabled = gameData.predefinedNumbers.includes(cellIndex);
                 buttons.push(new Discord.ButtonBuilder()
                     .setCustomId(`cell_${userId}_${i}`)
                     .setLabel(`${i + 1}`)
                     .setStyle(Discord.ButtonStyle.Primary)
-                    .setDisabled(disablePositions.has(i)));
+                    .setDisabled(isDisabled));
             }
             const row1 = new Discord.ActionRowBuilder().addComponents(buttons.slice(0, 3));
             const row2 = new Discord.ActionRowBuilder().addComponents(buttons.slice(3, 6));
@@ -127,7 +121,12 @@ class SudokuGame {
                 .setLabel('Back')
                 .setStyle(Discord.ButtonStyle.Danger)
                 .setDisabled(false);
-            const row4 = new Discord.ActionRowBuilder().addComponents(backButton);
+            const removeButton = new Discord.ButtonBuilder()
+                .setCustomId(`remove_${userId}`)
+                .setLabel('Remove')
+                .setStyle(Discord.ButtonStyle.Danger)
+                .setDisabled(false);
+            const row4 = new Discord.ActionRowBuilder().addComponents(backButton, removeButton);
             return [row1, row2, row3, row4];
         } else if (gameData.showAssignCandidates === 'candidates') {
             const numberButtons = [];
@@ -191,7 +190,7 @@ class SudokuGame {
             return;
         }
 
-        await interaction.deferUpdate(); // Defer the interaction
+        await interaction.deferUpdate();
 
         console.log(`[handleInteraction] Handling button press for user ${userId}, type=${type}, index=${index}`);
         if (type === 'grid') {
@@ -224,7 +223,6 @@ class SudokuGame {
                 gameData.game.puzzle = gameData.game.puzzle.substr(0, cellIndex) + index + gameData.game.puzzle.substr(cellIndex + 1);
                 console.log(`[handleInteraction] Assigned value ${index} to cell ${cellIndex}`);
 
-                // Clear candidates for the cell
                 gameData.candidates[cellIndex] = [];
 
                 gameData.highlightGrid = null;
@@ -252,27 +250,64 @@ class SudokuGame {
         } else if (type === 'complete') {
             const puzzle = gameData.game.puzzle;
             const solution = gameData.game.solution;
-            console.log(puzzle)
-            console.log(solution)
+            console.log(puzzle);
+            console.log(solution);
             if (puzzle === solution) {
                 await interaction.channel.send({ content: 'Congratulations! You have completed the puzzle correctly.' });
                 this.currentGames.delete(userId);
-                return; // Exit early to avoid sending another board
+                return;
             } else {
                 await interaction.channel.send({ content: 'The puzzle is not yet solved correctly. Please keep trying!' });
             }
         } else if (type === 'giveup') {
+            await this.sendCompletedBoard(interaction, gameData.game.solution);
             await interaction.channel.send({ content: 'You have given up on this puzzle. Better luck next time!' });
             this.currentGames.delete(userId);
-            return; // Exit early to avoid sending another board
+            return;
         } else if (type === 'back') {
             gameData.showAssignCandidates = null;
             console.log(`[handleInteraction] Cleared showAssignCandidates`);
+        } else if (type === 'remove') {
+            if (gameData.highlightCell) {
+                const cellIndex = gameData.highlightCell[0] * 9 + gameData.highlightCell[1];
+                gameData.game.puzzle = gameData.game.puzzle.substr(0, cellIndex) + '-' + gameData.game.puzzle.substr(cellIndex + 1);
+                console.log(`[handleInteraction] Removed value from cell ${cellIndex}`);
+
+                gameData.highlightGrid = null;
+                gameData.highlightCell = null;
+                gameData.showAssignCandidates = null;
+            }
         }
 
         this.currentGames.set(userId, gameData);
         await this.sendBoard(interaction);
         console.log(`[handleInteraction] Interaction handling complete for user ${userId}`);
+    }
+
+    async sendCompletedBoard(context, solution) {
+        const userId = context.author ? context.author.id : context.user.id;
+        const gameData = this.currentGames.get(userId);
+        if (!gameData) {
+            console.log(`[sendCompletedBoard] No game data found for user ${userId}`);
+            return;
+        }
+
+        console.log(`[sendCompletedBoard] Sending completed board for user ${userId}`);
+        const { highlightGrid, highlightCell, messageId, candidates, predefinedNumbers } = gameData;
+
+        const boardBuffer = await drawSudokuBoard(solution, highlightGrid, highlightCell, candidates, predefinedNumbers);
+
+        if (messageId) {
+            const previousMessage = await context.channel.messages.fetch(messageId).catch(() => null);
+            if (previousMessage) {
+                previousMessage.delete().catch(() => null);
+                console.log(`[sendCompletedBoard] Deleted previous message for user ${userId}`);
+            }
+        }
+
+        const attachment = new Discord.AttachmentBuilder(boardBuffer, { name: 'sudoku.png' });
+        await context.channel.send({ content: 'Completed Sudoku Puzzle:', files: [attachment] });
+        console.log(`[sendCompletedBoard] Sent completed board for user ${userId}`);
     }
 }
 

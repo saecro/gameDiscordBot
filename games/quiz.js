@@ -69,7 +69,7 @@ async function startQuiz(message, participants) {
                 const collectedMessages = await message.channel.awaitMessages({
                     filter,
                     max: 1,
-                    time: 10000,
+                    time: 20000,
                     errors: ['time']
                 });
                 if (!checkRunning(message.channel.id)) return;

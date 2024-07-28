@@ -9,9 +9,9 @@ const client = new Client({
         GatewayIntentBits.GuildMembers
     ]
 });
-const USER_ID = '805009105855971329';
+const USER_ID = '1130262772454789240';
 const GUILD_ID = '1131410686975684739';
-const ROLE_ID = '1210746667427561563'
+const ROLE_ID = '1267155410012606672'
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);

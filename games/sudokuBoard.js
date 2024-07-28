@@ -33,13 +33,11 @@ async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = nul
                     ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
                 }
 
-                // Highlight row and column
                 if (row === cellRow || col === cellCol) {
                     ctx.fillStyle = highlightColor;
                     ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
                 }
 
-                // Re-draw the cell itself with a different color to stand out
                 if (row === cellRow && col === cellCol) {
                     ctx.fillStyle = cellHighlightColor;
                     ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
@@ -59,7 +57,7 @@ async function drawSudokuBoard(puzzle, highlightGrid = null, highlightCell = nul
             const cellCandidates = candidates[row * 9 + col];
             if (cellCandidates && cellCandidates.length > 0) {
                 ctx.font = '12px Arial';
-                ctx.fillStyle = '#00ffff';
+                ctx.fillStyle = '#000000';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 cellCandidates.forEach(candidate => {

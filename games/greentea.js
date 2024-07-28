@@ -28,6 +28,9 @@ async function startGreenTea(message, participants) {
         points
     };
 
+    // Convert the list of words to lowercase
+    const lowercaseWords = new Set(words.map(word => word.toLowerCase()));
+
     while (checkRunning(message.channel.id)) {
         let collected = new Discord.Collection();
 
@@ -44,14 +47,15 @@ async function startGreenTea(message, participants) {
                 return false;
             }
 
-            const containsSequence = response.content.includes(letters);
+            const containsSequence = response.content.toLowerCase().includes(letters);
+            const isValidWord = lowercaseWords.has(response.content.toLowerCase());
             const isNotBot = response.author.id !== message.client.user.id;
             const hasNotAnswered = !answeredUsers.has(response.author.id);
             const isParticipant = participants.has(response.author.id);
 
             console.log(`${response.author.username} answered with ${response.content}`);
 
-            if (containsSequence && isNotBot && hasNotAnswered && isParticipant) {
+            if (containsSequence && isValidWord && isNotBot && hasNotAnswered && isParticipant) {
                 answeredUsers.add(response.author.id);
 
                 const medal = Object.keys(medals)[placed];
@@ -61,7 +65,7 @@ async function startGreenTea(message, participants) {
                     await response.react(medal);
                 }
             }
-            return containsSequence && isNotBot && hasNotAnswered && isParticipant;
+            return containsSequence && isValidWord && isNotBot && hasNotAnswered && isParticipant;
         };
 
         try {

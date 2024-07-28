@@ -282,6 +282,28 @@ function splitMessageByParagraphs(text) {
     return messages;
 }
 
+async function getConversionRate(from, to) {
+    try {
+        const response = await axios.get(`https://api.exchangerate-api.com/v4/latest/${from}`);
+        const rate = response.data.rates[to];
+        return rate;
+    } catch (error) {
+        console.error('Error fetching conversion rate:', error);
+        return null;
+    }
+}
+
+async function getSupportedCurrencies() {
+    try {
+        const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
+        const currencies = Object.keys(response.data.rates);
+        return currencies;
+    } catch (error) {
+        console.error('Error fetching supported currencies:', error);
+        return [];
+    }
+}
+
 async function isCommandToggledOff(command, guildId) {
     console.log(`Checking if command is toggled off: ${command}, guildId: ${guildId}`);
     const toggledCommand = await toggledCommandsCollection.findOne({ command, guildId });
@@ -865,7 +887,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('No game is currently running.');
             }
             return;
-        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startconnect4') {
+        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startconnect4' && command !== '!startsudoku') {
             await message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
             return;
         } else if (command === '!help') {
@@ -1430,50 +1452,71 @@ client.on('messageCreate', async message => {
                 message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
         } else if (command === '!rape') {
-            let user = message.mentions.users.first();
-            let member = message.guild.members.cache.get(message.author.id);
-            const hasRequiredRole = member.roles.cache.some(role =>
-                ['1210746667427561563', '1138038219775160441'].includes(role.id)
-            );
-            let desc = `<@${user.id}> has been raped!`
-            if (!hasRequiredRole) {
-                message.channel.send("your greenie ass can't rape anyone");
-                return;
-            }
-            if (user) {
+            try {
+                let user = message.mentions.users.first();
+                let member = message.guild.members.cache.get(message.author.id);
 
-                if (user.id === '1242601206627434708') {
-                    return message.channel.send("you can't rape the bot nigga.")
+                const hasRequiredRole = member.roles.cache.some(role =>
+                    ['1210746667427561563', '1138038219775160441'].includes(role.id)
+                );
+
+                if (!user) {
+                    return await message.channel.send("Please mention a valid user.");
                 }
-                console.log(user.id, userId)
-                if (user.id !== userId) {
-                    if ((user.id !== saecro || message.author.id === c) &&
-                        user.id !== c) {
-                        if (user.id === '665804779141726221') {
-                            desc = `<@${user.id}> has been **EXTRA** raped`
+
+                const checkUser = message.guild.members.cache.get(user.id);
+                if (!checkUser) {
+                    return await message.channel.send("The mentioned user is not in the guild.");
+                }
+
+                const userHasRole = checkUser.roles.cache.some(role =>
+                    ['1210746667427561563', '1138038219775160441'].includes(role.id)
+                );
+
+                if (!userHasRole) {
+                    return await message.channel.send('Trust me, you do not want to rape a greenie, them niggas got STDs');
+                }
+
+                if (!hasRequiredRole) {
+                    return await message.channel.send("Your greenie ass can't rape anyone");
+                }
+                let desc = `<@${user.id}> has been rapeped!`;
+                if (user) {
+
+                    if (user.id === '1242601206627434708') {
+                        return message.channel.send("you can't rape the bot nigga.")
+                    }
+                    console.log(user.id, userId)
+                    if (user.id !== userId) {
+                        if (user.id !== saecro) {
+                            if (user.id === '665804779141726221') {
+                                desc = `<@${user.id}> has been **EXTRA** raped`
+                            }
+                            const randomGifPath = getRandomGif();
+                            const embed = new Discord.EmbedBuilder()
+                                .setDescription(desc)
+                                .setImage(`attachment://${path.basename(randomGifPath)}`)
+                                .setColor('#FF0000');
+
+                            return await message.channel.send({
+                                embeds: [embed],
+                                files: [{
+                                    attachment: randomGifPath,
+                                    name: path.basename(randomGifPath)
+                                }]
+                            });
+
+                        } else {
+                            return await message.channel.send(`${user.username} cannot be raped`);
                         }
-                        const randomGifPath = getRandomGif();
-                        const embed = new Discord.EmbedBuilder()
-                            .setDescription(desc)
-                            .setImage(`attachment://${path.basename(randomGifPath)}`)
-                            .setColor('#FF0000');
-
-                        return await message.channel.send({
-                            embeds: [embed],
-                            files: [{
-                                attachment: randomGifPath,
-                                name: path.basename(randomGifPath)
-                            }]
-                        });
-
                     } else {
-                        return await message.channel.send(`${user.username} cannot be raped`);
+                        return await message.channel.send(`<@${userId}> you can't rape yourself 😭😭, go masturbate.`)
                     }
                 } else {
-                    return await message.channel.send(`<@${userId}> you can't rape yourself 😭😭, go masturbate.`)
+                    return await message.channel.send('you need to rape someone.')
                 }
-            } else {
-                return await message.channel.send('you need to rape someone.')
+            } catch (e) {
+                console.log('something happened')
             }
         } else if (command === '!aura') {
             console.log('getting aura');
@@ -1721,6 +1764,28 @@ client.on('messageCreate', async message => {
                 await sudokuGame.startGame(message, difficulty);
             } else {
                 await message.channel.send('You need to specify the difficulty: `!startsudoku easy | medium | hard | expert`')
+            }
+        } else if (command === '!convert    ') {
+            const args = message.content.split(' ').slice(1);
+            if (args.length === 0) {
+                const currencies = await getSupportedCurrencies();
+                message.reply(`Supported currencies: ${currencies.join(', ')}`);
+                return;
+            }
+
+            if (args.length !== 3) {
+                message.reply('Usage: !convert <from_currency> <to_currency> <amount>');
+                return;
+            }
+
+            const [fromCurrency, toCurrency, amount] = args;
+            const rate = await getConversionRate(fromCurrency.toUpperCase(), toCurrency.toUpperCase());
+
+            if (rate) {
+                const convertedAmount = (parseFloat(amount) * rate).toFixed(2);
+                message.reply(`${amount} ${fromCurrency.toUpperCase()} is equal to ${convertedAmount} ${toCurrency.toUpperCase()}`);
+            } else {
+                message.reply('Could not fetch conversion rate. Please try again.');
             }
         }
     }
