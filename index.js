@@ -17,8 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 const saecro = '805009105855971329';
-const angie = '721260969849913385'
-const c = '989718366317056062';
+const uno = '932381872414138388'
 const cooldowns = {
     gpt: new Map(),
     gptdraw: new Map()
@@ -793,7 +792,7 @@ client.on('messageCreate', async message => {
         message.delete()
     }
     for (const roleId of roleIDs) {
-        if (message.member.roles.cache.has(roleId)) {
+        if (message.member.roles.cache.has(roleId) || message.author.id === uno) {
             try {
                 await message.react('💀')
             } catch (e) {
@@ -849,17 +848,20 @@ client.on('messageCreate', async message => {
 
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
-                const blacklistedUsers = await blacklistCollection.find({}).toArray();
-                console.log(blacklistedUsers)
                 let Description = ''
-                if (blacklistedUsers) {
-                    blacklistedUsers.forEach((user, index) => {
-                        Description += `${index}. <@${user.userId}>\n`;
-                    });
-                } else {
+                try {
+                    const blacklistedUsers = await blacklistCollection.find({}).toArray();
+                    console.log(blacklistedUsers)
+                    if (blacklistedUsers.length > 0) {
+                        blacklistedUsers.forEach((user, index) => {
+                            Description += `${index}. <@${user.userId}>\n`;
+                        });
+                    } else {
+                        Description = 'No Blacklisted Users'
+                    }
+                } catch (e) {
                     Description = 'No Blacklisted Users'
-                }
-
+                };
                 const embed = new Discord.EmbedBuilder()
                     .setTitle(`Blacklisted Users`)
                     .setDescription(Description)
@@ -1480,7 +1482,7 @@ client.on('messageCreate', async message => {
                 if (!hasRequiredRole) {
                     return await message.channel.send("Your greenie ass can't rape anyone");
                 }
-                let desc = `<@${user.id}> has been rapeped!`;
+                let desc = `<@${user.id}> has been raped!`;
                 if (user) {
 
                     if (user.id === '1242601206627434708') {

@@ -9,7 +9,7 @@ const client = new Client({
         GatewayIntentBits.GuildMembers
     ]
 });
-const USER_ID = '1130262772454789240';
+const USER_ID = '1242601206627434708';
 const GUILD_ID = '1131410686975684739';
 const ROLE_ID = '1267155410012606672'
 
