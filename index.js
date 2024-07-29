@@ -607,7 +607,6 @@ async function getChatHistory(userId) {
     console.log(`Fetching chat history for userId: ${userId}`);
     const chatHistory = await aiMessages.find({ userId })
         .sort({ createdAt: -1 })
-        .limit(7)
         .toArray();
 
     chatHistory.reverse();
