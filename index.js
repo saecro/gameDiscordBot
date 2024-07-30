@@ -1979,102 +1979,60 @@ async function sendNotesEmbeds(channel) {
         return;
     }
 
-    let currentUserIndex = 0;
-
-    const sendEmbed = async (userId) => {
-        const userNotes = notesData[userId];
-        const user = await client.users.fetch(userId);
-
-        if (!user) {
-            console.error(`Failed to fetch user with ID: ${userId}`);
-            return;
+    // Create select menu options from user IDs
+    const options = [];
+    for (const userId of userIds) {
+        let member
+        try {
+            member = await channel.guild.members.fetch(userId);
+        } catch (e) {
+            console.log(`${userId} no longer in server`)
+            continue
         }
+        const displayName = member?.nickname || member?.user.username;
+        options.push({
+            label: displayName,
+            value: userId
+        });
+    }
 
-        const embed = new Discord.EmbedBuilder()
-            .setColor('#00ff00')
-            .setTitle(`${user.username}'s Notes`)
-            .setDescription(userNotes.map(note => `• ${note}`).join('\n'))
-            .setFooter({ text: `Page ${currentUserIndex + 1} of ${userIds.length}` })
-            .setTimestamp();
-
+    // Split options into multiple select menus if there are more than 25
+    const rows = [];
+    for (let i = 0; i < options.length; i += 25) {
+        const chunk = options.slice(i, i + 25);
         const row = new Discord.ActionRowBuilder()
             .addComponents(
-                new Discord.ButtonBuilder()
-                    .setCustomId('prevUser')
-                    .setLabel('←')
-                    .setStyle(Discord.ButtonStyle.Primary)
-                    .setDisabled(currentUserIndex === 0),
-                new Discord.ButtonBuilder()
-                    .setCustomId('nextUser')
-                    .setLabel('→')
-                    .setStyle(Discord.ButtonStyle.Primary)
-                    .setDisabled(currentUserIndex === userIds.length - 1),
-                new Discord.ButtonBuilder()
-                    .setCustomId('blacklistUser')
-                    .setLabel('Blacklist')
-                    .setStyle(Discord.ButtonStyle.Danger)
+                new Discord.StringSelectMenuBuilder()
+                    .setCustomId(`selectUser-${i / 25}`)
+                    .setPlaceholder('Select a user to view notes')
+                    .addOptions(chunk)
             );
+        rows.push(row);
+    }
 
-        const message = await channel.send({ embeds: [embed], components: [row] });
+    const message = await channel.send({ content: 'Select a user to view their notes:', components: rows });
 
-        const filter = i => i.user.id === saecro; // Ensure only the user with the ID stored in 'saecro' can click the buttons
-        const collector = message.createMessageComponentCollector({ filter, idle: 60000 }); // Set to 60 seconds of inactivity
+    const filter = i => i.user.id === saecro; // Ensure only the user with the ID stored in 'saecro' can interact
+    const collector = message.createMessageComponentCollector({ filter, idle: 60000 }); // Set to 60 seconds of inactivity
 
-        collector.on('collect', async i => {
-            if (i.customId === 'prevUser' && currentUserIndex > 0) {
-                currentUserIndex--;
-            } else if (i.customId === 'nextUser' && currentUserIndex < userIds.length - 1) {
-                currentUserIndex++;
-            } else if (i.customId === 'blacklistUser') {
+    collector.on('collect', async i => {
+        if (i.customId.startsWith('selectUser')) {
+            const selectedUserId = i.values[0];
+            const selectedUserNotes = notesData[selectedUserId];
+            const selectedUser = await client.users.fetch(selectedUserId);
 
-                const targetUserId = userIds[currentUserIndex];
-                console.log(targetUserId)
-                const blacklistedUser = await blacklistCollection.findOne({ userId: targetUserId });
+            const embed = new Discord.EmbedBuilder()
+                .setColor('#00ff00')
+                .setTitle(`${selectedUser.username}'s Notes`)
+                .setDescription(selectedUserNotes.map(note => `• ${note}`).join('\n'))
+                .setFooter({ text: `Notes for ${selectedUser.username}` })
+                .setTimestamp();
 
-                if (blacklistedUser) {
-                    await blacklistCollection.deleteOne({ userId: targetUserId });
-                    await channel.send(`Removed ${client.users.cache.get(targetUserId).tag} from the blacklist.`);
-                } else {
-                    await blacklistCollection.insertOne({ userId: targetUserId });
-                    await channel.send(`Added ${client.users.cache.get(targetUserId).tag} to the blacklist.`);
-                }
-                return;
-            }
+            await i.update({ embeds: [embed], components: rows });
+        }
+    });
 
-            await i.update({
-                embeds: [new Discord.EmbedBuilder()
-                    .setColor('#00ff00')
-                    .setTitle(`${client.users.cache.get(userIds[currentUserIndex]).username}'s Notes`)
-                    .setDescription(notesData[userIds[currentUserIndex]].map(note => `• ${note}`).join('\n'))
-                    .setFooter({ text: `Page ${currentUserIndex + 1} of ${userIds.length}` })
-                    .setTimestamp()
-                ],
-                components: [
-                    new Discord.ActionRowBuilder()
-                        .addComponents(
-                            new Discord.ButtonBuilder()
-                                .setCustomId('prevUser')
-                                .setLabel('←')
-                                .setStyle(Discord.ButtonStyle.Primary)
-                                .setDisabled(currentUserIndex === 0),
-                            new Discord.ButtonBuilder()
-                                .setCustomId('nextUser')
-                                .setLabel('→')
-                                .setStyle(Discord.ButtonStyle.Primary)
-                                .setDisabled(currentUserIndex === userIds.length - 1),
-                            new Discord.ButtonBuilder()
-                                .setCustomId('blacklistUser')
-                                .setLabel('Blacklist')
-                                .setStyle(Discord.ButtonStyle.Danger)
-                        )
-                ]
-            });
-        });
-
-        collector.on('end', collected => {
-            message.edit({ components: [] });
-        });
-    };
-
-    await sendEmbed(userIds[currentUserIndex]);
+    collector.on('end', collected => {
+        message.edit({ components: [] });
+    });
 }
