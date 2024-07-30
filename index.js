@@ -800,7 +800,9 @@ client.on('messageCreate', async message => {
             break;
         }
     }
-
+    if (userId === '') {
+        await message.react('<:L_:1219061401092489306>')
+    }
 
     const blacklistedUser = await blacklistCollection.findOne({ userId: userId });
 
@@ -1456,6 +1458,9 @@ client.on('messageCreate', async message => {
             try {
                 let user = message.mentions.users.first();
                 let member = message.guild.members.cache.get(message.author.id);
+                if (user?.id === '1242601206627434708') {
+                    return message.channel.send("you can't rape the bot nigga.")
+                }
 
                 const hasRequiredRole = member.roles.cache.some(role =>
                     ['1210746667427561563', '1138038219775160441'].includes(role.id)
@@ -1484,13 +1489,10 @@ client.on('messageCreate', async message => {
                 let desc = `<@${user.id}> has been raped!`;
                 if (user) {
 
-                    if (user.id === '1242601206627434708') {
-                        return message.channel.send("you can't rape the bot nigga.")
-                    }
                     console.log(user.id, userId)
                     if (user.id !== userId) {
                         if (user.id !== saecro) {
-                            if (user.id === '665804779141726221') {
+                            if (user.id === '665804779141726221' || userId === saecro) {
                                 desc = `<@${user.id}> has been **EXTRA** raped`
                             }
                             const randomGifPath = getRandomGif();
@@ -1706,8 +1708,10 @@ client.on('messageCreate', async message => {
                 await sendNotesEmbeds(message.channel);
             }
         } else if (command === '!forget') {
-            await aiMessages.deleteMany({})
-            await message.channel.send('history reset for AI')
+            if (userId === saecro) {
+                await aiMessages.deleteMany({})
+                await message.channel.send('history reset for AI')
+            }
         } else if (command === '!cleartimeout') {
             if (!isAdmin(message.member)) {
                 return await message.channel.send('You do not have permission to use this command.');
