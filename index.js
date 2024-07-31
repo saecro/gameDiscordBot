@@ -105,9 +105,11 @@ const logChannel = database.collection('AIChannels');
 const botServers = database.collection('botGuilds');
 const auraCollection = database.collection('aura');
 const blacklistCollection = database.collection('blacklist');
+const notesCollection = database.collection('notes');
 app.locals.db = database;
 
 const slotMachineGame = require('./games/slotMachineGame.js');
+const checkersGame = require('./games/checkersGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
 const sudokuGame = require('./games/sudokuGame.js');
@@ -197,10 +199,9 @@ process.on('uncaughtException', (error) => {
 });
 
 async function getPlayerGames() {
-    const chessGamesArray = await gamesCollection.find().toArray();
-    const connect4GamesArray = await gamesCollection.find().toArray();
-    const games = chessGamesArray.concat(connect4GamesArray);
-    return games.reduce((map, game) => {
+    const gamesArray = await gamesCollection.find().toArray();
+
+    return gamesArray.reduce((map, game) => {
         map.set(game.playerId, game.gameKey);
         return map;
     }, new Map());
@@ -448,9 +449,8 @@ async function getOrCreateUserCurrency(userId) {
 
 async function isPlayerInGame(playerId) {
     console.log(`Checking if player is in game: ${playerId}`);
-    const chessGame = await gamesCollection.findOne({ playerId });
-    const connect4Game = await gamesCollection.findOne({ playerId });
-    const inGame = !!chessGame || !!connect4Game;
+    const Game = await gamesCollection.findOne({ playerId });
+    const inGame = !!Game;
     console.log(`Player in game: ${inGame}`);
     return inGame;
 }
@@ -670,6 +670,22 @@ client.on('guildCreate', async (guild) => {
     await fetchBotGuilds();
 });
 
+function getRandomSpiderGif(directory) {
+    return new Promise((resolve, reject) => {
+        fs.readdir(directory, (err, files) => {
+            if (err) {
+                return reject(`Error reading directory: ${err.message}`);
+            }
+            const gifFiles = files.filter(file => path.extname(file).toLowerCase() === '.gif');
+            if (gifFiles.length === 0) {
+                return reject('No .gif files found in the folder');
+            }
+            const randomIndex = Math.floor(Math.random() * gifFiles.length);
+            resolve(path.join(directory, gifFiles[randomIndex]));
+        });
+    });
+}
+
 async function updateAura(userId, amount) {
     console.log(`Updating aura for userId: ${userId}, amount: ${amount}`);
     await auraCollection.updateOne(
@@ -775,6 +791,12 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 let currentGame = null;
 
 client.on('messageCreate', async message => {
+    if (message.content.startsWith('$') && message.channel.id === '1254685994251321344') {
+        message.delete()
+    }
+    if (message.channel.id === '1254685994251321344' && message.author.id === '432610292342587392') {
+        message.delete()
+    }
     if (message.author.bot) return;
     const userId = message.author.id;
     const playerGames = await getPlayerGames();
@@ -787,9 +809,31 @@ client.on('messageCreate', async message => {
             return
         }
     }
+
+    if (userId === '') {
+        await message.react('<:L_:1219061401092489306>')
+    }
+
     if (message.content.includes('coomer.su')) {
         message.delete()
     }
+
+    if (userId === '792619788810977280') {
+        const randomChance = Math.random();
+        console.log(randomChance);
+        if (randomChance <= 0.10) {
+            try {
+                const gifPath = await getRandomSpiderGif('./spiderGifs');
+                const gif = new Discord.AttachmentBuilder(gifPath, { name: 'spider.gif' });
+                await message.reply({ files: [gif] });
+            } catch (error) {
+                console.error('Error selecting random gif:', error);
+            }
+        } else {
+            console.log('No GIF selected this time');
+        }
+    }
+
     for (const roleId of roleIDs) {
         if (message.member.roles.cache.has(roleId) || message.author.id === uno) {
             try {
@@ -800,9 +844,7 @@ client.on('messageCreate', async message => {
             break;
         }
     }
-    if (userId === '') {
-        await message.react('<:L_:1219061401092489306>')
-    }
+
 
     const blacklistedUser = await blacklistCollection.findOne({ userId: userId });
 
@@ -848,40 +890,67 @@ client.on('messageCreate', async message => {
             }
 
             const mentionedUser = message.mentions.users.first();
+            let duration = args[2];
+
             if (!mentionedUser) {
-                let Description = ''
+                let Description = '';
                 try {
                     const blacklistedUsers = await blacklistCollection.find({}).toArray();
-                    console.log(blacklistedUsers)
                     if (blacklistedUsers.length > 0) {
                         blacklistedUsers.forEach((user, index) => {
-                            Description += `${index}. <@${user.userId}>\n`;
+                            Description += `${index + 1}. <@${user.userId}>\n`;
                         });
                     } else {
-                        Description = 'No Blacklisted Users'
+                        Description = 'No Blacklisted Users';
                     }
                 } catch (e) {
-                    Description = 'No Blacklisted Users'
-                };
+                    Description = 'No Blacklisted Users';
+                }
+
                 const embed = new Discord.EmbedBuilder()
-                    .setTitle(`Blacklisted Users`)
+                    .setTitle('Blacklisted Users')
                     .setDescription(Description)
                     .setColor('#ff0000');
 
                 return await message.channel.send({ embeds: [embed] });
-
             }
 
             const blacklistedUser = await blacklistCollection.findOne({ userId: mentionedUser.id });
 
-            if (blacklistedUser) {
-                await blacklistCollection.deleteOne({ userId: mentionedUser.id });
-                await message.channel.send(`Removed ${mentionedUser.tag} from the blacklist.`);
+            if (duration) {
+                const durationMatch = duration.match(/^(\d+)([smhd])$/);
+                if (!durationMatch) {
+                    return await message.channel.send('Please provide a valid duration (e.g., 10s, 5m, 1h, 1d).');
+                }
+
+                const [_, time, unit] = durationMatch;
+                const milliseconds = {
+                    's': 1000,
+                    'm': 60 * 1000,
+                    'h': 60 * 60 * 1000,
+                    'd': 24 * 60 * 60 * 1000
+                }[unit] * parseInt(time, 10);
+
+                if (blacklistedUser) {
+                    return await message.channel.send(`${mentionedUser.tag} is already blacklisted.`);
+                } else {
+                    await blacklistCollection.insertOne({ userId: mentionedUser.id });
+                    await message.channel.send(`Added ${mentionedUser.tag} to the blacklist for ${duration}.`);
+
+                    schedule.scheduleJob(Date.now() + milliseconds, async () => {
+                        await blacklistCollection.deleteOne({ userId: mentionedUser.id });
+                        await message.channel.send(`Removed ${mentionedUser.tag} from the blacklist after ${duration}.`);
+                    });
+                }
             } else {
-                await blacklistCollection.insertOne({ userId: mentionedUser.id });
-                await message.channel.send(`Added ${mentionedUser.tag} to the blacklist.`);
+                if (blacklistedUser) {
+                    await blacklistCollection.deleteOne({ userId: mentionedUser.id });
+                    await message.channel.send(`Removed ${mentionedUser.tag} from the blacklist.`);
+                } else {
+                    await blacklistCollection.insertOne({ userId: mentionedUser.id });
+                    await message.channel.send(`Added ${mentionedUser.tag} to the blacklist.`);
+                }
             }
-            return;
         } else if (command === '!exitgame') {
             if (currentGame) {
                 currentGame.endGame();
@@ -890,7 +959,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('No game is currently running.');
             }
             return;
-        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startconnect4' && command !== '!startsudoku') {
+        } else if (currentGame && command !== '!move' && command.startsWith('!start') && command !== '!startchessgame' && command !== '!startcheckersgame' && command !== '!startconnect4' && command !== '!startsudoku') {
             await message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
             return;
         } else if (command === '!help') {
@@ -1023,6 +1092,32 @@ client.on('messageCreate', async message => {
             participants.set(mentionedUser.id, mentionedUser.username);
 
             await chessGame.startChessGame(message, participants);
+        } else if (command === '!startcheckersgame') {
+            const mentionedUser = message.mentions.users.first();
+            if (!mentionedUser) {
+                return await message.channel.send('Please mention a user to start a checkers game with.');
+            }
+
+            if (mentionedUser.bot) {
+                return await message.channel.send('You cannot play checkers with a bot.');
+            }
+
+            if (mentionedUser.id === message.author.id) {
+                return await message.channel.send('You cannot play checkers with yourself.');
+            }
+
+            const authorInGame = await isPlayerInGame(message.author.id);
+            const mentionedUserInGame = await isPlayerInGame(mentionedUser.id);
+
+            if (authorInGame || mentionedUserInGame) {
+                return await message.channel.send('One or both players are already in a game.');
+            }
+
+            const participants = new Map();
+            participants.set(message.author.id, message.author.username);
+            participants.set(mentionedUser.id, mentionedUser.username);
+
+            await checkersGame.startCheckersGame(message, participants);
         } else if (command === '!startconnect4') {
             const mentionedUser = message.mentions.users.first();
             if (!mentionedUser) {
@@ -1461,7 +1556,6 @@ client.on('messageCreate', async message => {
                 if (user?.id === '1242601206627434708') {
                     return message.channel.send("you can't rape the bot nigga.")
                 }
-
                 const hasRequiredRole = member.roles.cache.some(role =>
                     ['1210746667427561563', '1138038219775160441'].includes(role.id)
                 );
@@ -1631,26 +1725,25 @@ client.on('messageCreate', async message => {
             if (!note) {
                 return await message.channel.send('Please provide a note to save.');
             }
-            let notesData = {};
+
             try {
-                if (fs.existsSync(notesFilePath)) {
-                    notesData = JSON.parse(fs.readFileSync(notesFilePath, 'utf-8'));
+                let userNotes = await notesCollection.findOne({ userId });
+
+                if (!userNotes) {
+                    userNotes = { userId, notes: [] };
                 }
-            } catch (error) {
-                console.error('Error reading notes file:', error);
-                return await message.channel.send('Failed to read notes file.');
-            }
 
-            if (!notesData[userId]) {
-                notesData[userId] = [];
-            }
-            notesData[userId].push(note);
+                userNotes.notes.push(note);
 
-            try {
-                fs.writeFileSync(notesFilePath, JSON.stringify(notesData, null, 2));
+                await notesCollection.updateOne(
+                    { userId },
+                    { $set: { notes: userNotes.notes } },
+                    { upsert: true }
+                );
+
                 await message.channel.send('Your note has been saved.');
             } catch (error) {
-                console.error('Error writing notes file:', error);
+                console.error('Error saving note:', error);
                 await message.channel.send('Failed to save your note.');
             }
         } else if (command === '!resetmoney') {
@@ -1770,7 +1863,7 @@ client.on('messageCreate', async message => {
             } else {
                 await message.channel.send('You need to specify the difficulty: `!startsudoku easy | medium | hard | expert`')
             }
-        } else if (command === '!convert    ') {
+        } else if (command === '!convert') {
             const args = message.content.split(' ').slice(1);
             if (args.length === 0) {
                 const currencies = await getSupportedCurrencies();
@@ -1791,6 +1884,14 @@ client.on('messageCreate', async message => {
                 message.reply(`${amount} ${fromCurrency.toUpperCase()} is equal to ${convertedAmount} ${toCurrency.toUpperCase()}`);
             } else {
                 message.reply('Could not fetch conversion rate. Please try again.');
+            }
+        } else if (command === '!say') {
+            message.delete()
+            if (userId === saecro) {
+                if (!message.content.replace('!say', '').trim()) {
+                    return await message.channel.send('please say something')
+                }
+                await message.channel.send(message.content.replace('!say ', ''))
             }
         }
     }
@@ -1814,7 +1915,7 @@ class GameSession {
     }
 
     async start() {
-        if (this.gameType !== 'chessgame') {
+        if (this.gameType !== 'chessgame' || this.gameType !== 'checkersgame') {
             this.participants = await startJoinPhase(this.message);
         }
         if (this.participants.size > 0) {
@@ -1961,22 +2062,25 @@ async function startBlackjackGame(message, participants) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
-setInterval(sendReminderMessage, 20 * 60 * 1000); // 20 minutes in milliseconds
+setInterval(sendReminderMessage, 30 * 60 * 1000); // 20 minutes in milliseconds
 
-function loadNotes() {
-    let notesData = {};
+async function loadNotes() {
     try {
-        if (fs.existsSync(notesFilePath)) {
-            notesData = JSON.parse(fs.readFileSync(notesFilePath, 'utf-8'));
-        }
-    } catch (error) {
-        console.error('Error reading notes file:', error);
-    }
-    return notesData;
-}
+        const notesCursor = await notesCollection.find({});
+        const notesData = {};
 
+        await notesCursor.forEach(doc => {
+            notesData[doc.userId] = doc.notes;
+        });
+
+        return notesData;
+    } catch (error) {
+        console.error('Error reading notes from the database:', error);
+        return {};
+    }
+}
 async function sendNotesEmbeds(channel) {
-    const notesData = loadNotes();
+    const notesData = await loadNotes(); // Fetch notes from the database
     const userIds = Object.keys(notesData);
 
     if (userIds.length === 0) {
@@ -1986,12 +2090,12 @@ async function sendNotesEmbeds(channel) {
     // Create select menu options from user IDs
     const options = [];
     for (const userId of userIds) {
-        let member
+        let member;
         try {
             member = await channel.guild.members.fetch(userId);
         } catch (e) {
-            console.log(`${userId} no longer in server`)
-            continue
+            console.log(`${userId} no longer in server`);
+            continue;
         }
         const displayName = member?.nickname || member?.user.username;
         options.push({

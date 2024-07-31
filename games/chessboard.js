@@ -85,7 +85,7 @@ async function generateChessboardImage(board, lastMove = null, flip = false) {
             }
 
             if (pieceKey && pieceImages[pieceKey]) {
-                const imagePath = path.resolve(__dirname, '../pieces', pieceImages[pieceKey]);
+                const imagePath = path.resolve(__dirname, '../chessPieces', pieceImages[pieceKey]);
                 try {
                     const image = await loadImage(imagePath);
                     ctx.drawImage(image, (drawX + 1) * squareSize, (drawY + 1) * squareSize, squareSize, squareSize);
