@@ -109,9 +109,10 @@ const notesCollection = database.collection('notes');
 app.locals.db = database;
 
 const slotMachineGame = require('./games/slotMachineGame.js');
-const checkersGame = require('./games/checkersGame.js');
 const blackjackGame = require('./games/blackjackGame.js');
 const connect4Game = require('./games/connect4game.js');
+const checkersGame = require('./games/checkersGame.js');
+const rouletteGame = require('./games/rouletteGame.js');
 const sudokuGame = require('./games/sudokuGame.js');
 const chessGame = require('./games/chessgame.js');
 const mathGame = require('./games/mathGame.js');
@@ -1585,27 +1586,26 @@ client.on('messageCreate', async message => {
 
                     console.log(user.id, userId)
                     if (user.id !== userId) {
-                        if (user.id !== saecro) {
-                            if (user.id === '665804779141726221' || userId === saecro) {
-                                desc = `<@${user.id}> has been **EXTRA** raped`
-                            }
-                            const randomGifPath = getRandomGif();
-                            const embed = new Discord.EmbedBuilder()
-                                .setDescription(desc)
-                                .setImage(`attachment://${path.basename(randomGifPath)}`)
-                                .setColor('#FF0000');
-
-                            return await message.channel.send({
-                                embeds: [embed],
-                                files: [{
-                                    attachment: randomGifPath,
-                                    name: path.basename(randomGifPath)
-                                }]
-                            });
-
-                        } else {
-                            return await message.channel.send(`${user.username} cannot be raped`);
+                        if (user.id === saecro) {
+                            desc = `Saecro cannot be raped. but he can counter rape you!\nSaecro just **__*ULTRA RAPED*__** <@${userId}>`
                         }
+                        if (user.id === '665804779141726221' || userId === saecro) {
+                            desc = `<@${user.id}> has been **EXTRA** raped`
+                        }
+                        const randomGifPath = getRandomGif();
+                        const embed = new Discord.EmbedBuilder()
+                            .setDescription(desc)
+                            .setImage(`attachment://${path.basename(randomGifPath)}`)
+                            .setColor('#FF0000');
+
+                        return await message.channel.send({
+                            embeds: [embed],
+                            files: [{
+                                attachment: randomGifPath,
+                                name: path.basename(randomGifPath)
+                            }]
+                        });
+
                     } else {
                         return await message.channel.send(`<@${userId}> you can't rape yourself 😭😭, go masturbate.`)
                     }
@@ -1927,7 +1927,10 @@ client.on('messageCreate', async message => {
             };
 
             message.channel.send({ embeds: [roleInfoEmbed] });
+        }   else if (command === '!startroulette') {
+            await rouletteGame.startRouletteGame(client, message);
         }
+    
     }
 });
 
