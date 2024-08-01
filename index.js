@@ -1893,6 +1893,40 @@ client.on('messageCreate', async message => {
                 }
                 await message.channel.send(message.content.replace('!say ', ''))
             }
+        } else if (command === '!roleinfo') {
+            const args = message.content.split(' ');
+            const roleId = args[1];
+
+            if (!roleId) {
+                return message.channel.send('Please provide a role ID.');
+            }
+
+            const role = message.guild.roles.cache.get(roleId);
+
+            if (!role) {
+                return message.channel.send('Role not found.');
+            }
+
+            const roleMembers = message.guild.members.cache.filter(member => member.roles.cache.has(role.id)).size;
+
+            const roleInfoEmbed = {
+                color: role.color,
+                title: `Role Info: ${role.name}`,
+                fields: [
+                    { name: 'Role ID', value: role.id, inline: true },
+                    { name: 'Name', value: role.name, inline: true },
+                    { name: 'Color', value: role.hexColor, inline: true },
+                    { name: 'Members with this Role', value: roleMembers.toString(), inline: true },
+                    { name: 'Position', value: role.position.toString(), inline: true },
+                    { name: 'Mentionable', value: role.mentionable ? 'Yes' : 'No', inline: true }
+                ],
+                timestamp: new Date(),
+                footer: {
+                    text: `Requested by ${message.author.tag}`
+                }
+            };
+
+            message.channel.send({ embeds: [roleInfoEmbed] });
         }
     }
 });
