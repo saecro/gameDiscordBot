@@ -794,7 +794,7 @@ let currentGame = null;
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
     const userId = message.author.id;
-    if (message.content.includes('unrapeable') && !isAdmin(userId)) {
+    if (message.content.toLowerCase().replace(/[^a-z0-9]/gi, '').includes('unrapeable') && !isAdmin(userId)) {
         return await message.delete()
     }
     const playerGames = await getPlayerGames();
