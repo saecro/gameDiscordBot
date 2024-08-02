@@ -792,14 +792,11 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 let currentGame = null;
 
 client.on('messageCreate', async message => {
-    if (message.content.startsWith('$') && message.channel.id === '1254685994251321344') {
-        message.delete()
-    }
-    if (message.channel.id === '1254685994251321344' && message.author.id === '432610292342587392') {
-        message.delete()
-    }
     if (message.author.bot) return;
     const userId = message.author.id;
+    if (message.content.includes('unrapeable') && !isAdmin(userId)) {
+        return await message.delete()
+    }
     const playerGames = await getPlayerGames();
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const args = message.content.trim().split(/ +/g);
@@ -1927,10 +1924,10 @@ client.on('messageCreate', async message => {
             };
 
             message.channel.send({ embeds: [roleInfoEmbed] });
-        }   else if (command === '!startroulette') {
+        } else if (command === '!startroulette') {
             await rouletteGame.startRouletteGame(client, message);
         }
-    
+
     }
 });
 
