@@ -9,9 +9,18 @@ const checkRunning = (channelId) => {
 
 const grab3letters = (WordsToFilter) => {
     WordsToFilter = WordsToFilter.filter(word => word.length >= 3);
-    WordsToFilter = WordsToFilter[Math.floor(Math.random() * WordsToFilter.length)];
-    const startIdx = Math.floor(Math.random() * (WordsToFilter.length - 2));
-    return WordsToFilter.substring(startIdx, startIdx + 3);
+    let selectedLetters = '';
+    let count = 0;
+
+    while (count < 1000) {
+        const word = WordsToFilter[Math.floor(Math.random() * WordsToFilter.length)];
+        const startIdx = Math.floor(Math.random() * (word.length - 2));
+        selectedLetters = word.substring(startIdx, startIdx + 3);
+
+        count = WordsToFilter.filter(word => word.includes(selectedLetters)).length;
+    }
+
+    return selectedLetters;
 };
 
 async function startBlackTea(message, participants) {
@@ -45,7 +54,7 @@ async function startBlackTea(message, participants) {
 
             const gameMessage = await message.channel.send({ content: `<@${userId}>`, embeds: [embed] });
 
-            let countdownSeconds = 10;
+            let countdownSeconds = 15;
 
             const countdown = setInterval(async () => {
                 if (!checkRunning(message.channel.id)) {
