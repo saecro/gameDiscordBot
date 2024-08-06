@@ -20,6 +20,20 @@
             "description": "The `!gptrole` command assigns the 'gpt' role to a mentioned user.",
             "usage": "`!gptrole @user`",
             "example": "`!gptrole @username`\nAssigns the 'gpt' role to the mentioned user."
+        },
+        {
+            "name": "switch",
+            "title": "Help - !switch",
+            "description": "The `!switch` command toggles the availability of commands in the server.",
+            "usage": "`!switch <command>`",
+            "example": "`!switch !gpt`\nToggles the availability of the !gpt command in the server."
+        },
+        {
+            "name": "blacklist",
+            "title": "Help - !blacklist",
+            "description": "The `!blacklist` command manages the blacklist status of users in the server.",
+            "usage": "`!blacklist @user` or `!blacklist @user <duration>`",
+            "example": "`!blacklist @username`\nAdds or removes the mentioned user from the blacklist."
         }
     ],
     "gameCommands": [
@@ -48,15 +62,15 @@
             "name": "startconnect4",
             "title": "Help - !startconnect4",
             "description": "The `!startconnect4` command initiates a connect 4 game where users try win in a four-in-a-row.",
-            "usage": "`!startconnect4`",
-            "example": "`!startconnect4 @user`\nMention a user to start a connect 4 game with them and begin making moves."
+            "usage": "`!startconnect4 @user`",
+            "example": "`!startconnect4 @username`\nMention a user to start a connect 4 game with them and begin making moves."
         },
         {
             "name": "startchessgame",
             "title": "Help - !startchessgame",
             "description": "The `!startchessgame` command initiates a chess game with another user.",
             "usage": "`!startchessgame @user`",
-            "example": "`!startchessgame @user`\nMention a user to start a chess game with them and begin making moves."
+            "example": "`!startchessgame @username`\nMention a user to start a chess game with them and begin making moves."
         },
         {
             "name": "startblackjack",
@@ -117,12 +131,26 @@
         {
             "name": "exitgame",
             "title": "Help - !exitgame",
-            "description": "The `!exitgame` command ends any current game running either between 2 people or in a group",
+            "description": "The `!exitgame` command ends any current game running either between 2 people or in a group.",
             "usage": "`!exitgame`",
             "example": "`!exitgame`\nThis will automatically end the game. use wisely"
+        },
+        {
+            "name": "startcheckersgame",
+            "title": "Help - !startcheckersgame",
+            "description": "The `!startcheckersgame` command initiates a checkers game with another user.",
+            "usage": "`!startcheckersgame @user`",
+            "example": "`!startcheckersgame @username`\nMention a user to start a checkers game with them and begin making moves."
         }
-],
+    ],
     "generalCommands": [
+        {
+            "name": "leaderboard",
+            "title": "Help - !leaderboard",
+            "description": "The `!leaderboard` command shows the leaderboard for who has the most amount of money.",
+            "usage": "`!leaderboard`",
+            "example": "`!leaderboard`\nThe bot will display your current balance."
+        },
         {
             "name": "balance",
             "title": "Help - !balance",
