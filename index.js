@@ -17,6 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 const saecro = '805009105855971329';
+const sarah = '1149071943203565708'
 const uno = '932381872414138388'
 const cooldowns = {
     gpt: new Map(),
@@ -93,6 +94,7 @@ const notesFilePath = path.join(__dirname, 'notes.json');
 const database = mongoClient.db('discordGameBot');
 const blockedCommandsCollection = database.collection('blockedCommands');
 const toggledCommandsCollection = database.collection('toggledCommands');
+const limitGamesCollection = database.collection('limitGames');
 const validGptRoleIds = database.collection('validGptRoleIds');
 const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
@@ -794,9 +796,6 @@ let currentGame = null;
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
     const userId = message.author.id;
-    if (message.content.toLowerCase().replace(/[^a-z0-9]/gi, '').includes('unrapeable') && !isAdmin(userId)) {
-        return await message.delete()
-    }
     const playerGames = await getPlayerGames();
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const args = message.content.trim().split(/ +/g);
