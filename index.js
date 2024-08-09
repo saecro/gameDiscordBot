@@ -17,7 +17,6 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 const saecro = '805009105855971329';
-const sarah = '1149071943203565708'
 const uno = '932381872414138388'
 const cooldowns = {
     gpt: new Map(),
@@ -71,7 +70,7 @@ server.listen(PORT, () => {
 });
 
 function sendReminderMessage() {
-    const channelId = '1261996162597257308'; // Replace with your specific channel ID
+    const channelId = '1270888994619785258'; // Replace with your specific channel ID
     const reminderMessage = "If there is anything you want added to the discord bot, please use the command as such: `!note add checkers game`. anyone that abuses this will receive a blacklist from the bot until otherwise.";
 
     const channel = client.channels.cache.get(channelId);
@@ -133,7 +132,7 @@ const client = new Discord.Client({
         Discord.GatewayIntentBits.GuildMembers
     ]
 });
-
+let BetterPrompt = false
 const apiKey = process.env.FORTNITE_API_KEY;
 const stateTimezones = {
     'alabama': 'America/Chicago',
@@ -232,6 +231,26 @@ async function getBalance(message) {
     console.log(`User balance: ${balance.money}`);
     return embed;
 }
+
+async function askYesNoQuestion(channel, question, author) {
+    const filter = response => {
+        console.log(`Received response: ${response.content} from ${response.author.id}`);
+        return response.author.id === author.id && ['yes', 'no'].includes(response.content.toLowerCase());
+    };
+
+    await channel.send(question);
+    try {
+        const collected = await channel.awaitMessages({ filter, max: 1, time: 15000, errors: ['time'] });
+        const answer = collected.first().content.toLowerCase();
+        console.log(`Collected answer: ${answer}`);
+        return answer === 'yes';
+    } catch (e) {
+        console.log('No response received or an error occurred:', e);
+        await channel.send('No response received, assuming "no".');
+        return false;
+    }
+}
+
 
 async function leaderboard(message) {
     const currencyCollection = database.collection('currency');
@@ -491,6 +510,35 @@ async function chatWithAssistant(userId, userMessage) {
     return assistantMessage;
 }
 
+async function updatePrompt(userMessage) {
+    let conversation_history = []
+    conversation_history.push({
+        role: 'system',
+        content: `
+You are an AI prompt enhancer that refines and optimizes user-provided prompts by clarifying intent, enriching details, and applying relevant Midjourney parameters to ensure vivid, actionable, and precise outputs. Key parameters include:
+- '--aspect': Sets the aspect ratio (e.g., 16:9).
+- '--chaos': Increases randomness in the output.
+- '--quality': Determines rendering quality.
+- '--stylize': Controls artistic style application.
+- '--seed': Fixes random generation for consistency.
+- '--tile': Generates seamless textures.
+- '--no': Excludes specific elements.
+- '--sameseed': Ensures consistent details across variations. 
+
+The final prompt is concise, impactful, and creatively aligned with user goals.`
+    });
+    conversation_history.push({ role: "user", content: userMessage });
+
+    const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: conversation_history,
+    });
+    const assistantMessage = response.choices[0].message.content;
+
+    console.log(`Assistant response: ${assistantMessage}`);
+    return assistantMessage;
+}
+
 async function setTimezone(message, location, userId) {
     console.log(`Setting timezone for userId: ${userId}, location: ${location}`);
 
@@ -539,7 +587,12 @@ async function showTimezone(message, userId) {
     await message.channel.send({ embeds: [embed] });
 }
 
-async function drawWithAssistant(userMessage) {
+const userMessageIds = new Map();
+
+async function drawWithAssistant(userMessage, userId) {
+    if (BetterPrompt) {
+        userMessage = updatePrompt(userMessage)
+    }
     try {
         const sendRequest = {
             method: "post",
@@ -553,10 +606,10 @@ async function drawWithAssistant(userMessage) {
             },
         };
 
-        // Make the initial request to start the image generation
         const response = await axios(sendRequest);
-        console.log(response.data)
+        console.log(response.data);
         const messageId = response.data.messageId; // Assuming the response contains a messageId
+        userMessageIds.set(userId, messageId);
         const grabRequest = {
             method: "get",
             url: `https://api.imaginepro.ai/api/v1/midjourney/message/${messageId}`,
@@ -565,7 +618,6 @@ async function drawWithAssistant(userMessage) {
             },
         };
 
-        // Polling function
         const pollRequest = (grabRequest, interval = 1000) => {
             return new Promise((resolve, reject) => {
                 const poll = async () => {
@@ -573,7 +625,7 @@ async function drawWithAssistant(userMessage) {
                         const newResponse = await axios(grabRequest);
                         console.log(newResponse.data);
 
-                        if (newResponse.data.status === 'DONE') {
+                        if (newResponse.data.status === 'DONE' || newResponse.data.status === 'FAIL') {
                             clearInterval(polling);
                             resolve(newResponse.data);
                         }
@@ -587,10 +639,11 @@ async function drawWithAssistant(userMessage) {
             });
         };
 
-        // Start polling
         const finalResponse = await pollRequest(grabRequest);
 
-        // Fetch the image data once the status is 'DONE'
+        if (finalResponse.status === 'FAIL') {
+            return 'PROMPT FAILED, PLEASE RETRY.'
+        }
         const imageResponse = await axios.get(finalResponse.uri, { responseType: 'arraybuffer' });
         const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
 
@@ -605,6 +658,77 @@ async function drawWithAssistant(userMessage) {
         throw error;
     }
 }
+
+
+async function updateWithAssistant(userId, button) {
+    try {
+        const messageId = userMessageIds.get(userId);
+        if (!messageId) {
+            throw new Error('No messageId found for this user.');
+        }
+
+        const sendRequest = {
+            method: "post",
+            url: "https://api.imaginepro.ai/api/v1/midjourney/button",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.MIDJOURNEY_API_KEY}`,
+            },
+            data: {
+                messageId,
+                button,
+            },
+        };
+
+        const results = await axios(sendRequest);
+        let newMessageId = results.data.messageId
+        const grabRequest = {
+            method: "get",
+            url: `https://api.imaginepro.ai/api/v1/midjourney/message/${newMessageId}`,
+            headers: {
+                Authorization: `Bearer ${process.env.MIDJOURNEY_API_KEY}`,
+            },
+        };
+
+        const pollRequest = (grabRequest, interval = 1000) => {
+            return new Promise((resolve, reject) => {
+                const poll = async () => {
+                    try {
+                        const newResponse = await axios(grabRequest);
+                        console.log(newResponse.data);
+
+                        if (newResponse.data.status === 'DONE' || newResponse.data.status === 'FAIL') {
+                            clearInterval(polling);
+                            resolve(newResponse.data);
+                        }
+                    } catch (error) {
+                        clearInterval(polling);
+                        reject(error);
+                    }
+                };
+
+                const polling = setInterval(poll, interval);
+            });
+        };
+
+        const finalResponse = await pollRequest(grabRequest);
+
+        if (finalResponse.status === 'FAIL') {
+            return 'PROMPT FAILED, PLEASE RETRY.'
+        }
+        const imageResponse = await axios.get(finalResponse.uri, { responseType: 'arraybuffer' });
+        const imageData = Buffer.from(imageResponse.data, 'binary').toString('base64');
+
+        return {
+            imageData
+        };
+
+    } catch (error) {
+        console.error('Error updating with assistant:', error);
+        throw error;
+    }
+}
+
 
 async function getChatHistory(userId) {
     console.log(`Fetching chat history for userId: ${userId}`);
@@ -807,8 +931,11 @@ client.on('messageCreate', async message => {
         }
     }
 
-    if (userId === '') {
-        await message.react('<:L_:1219061401092489306>')
+    if (userId === '1157920308154597406') {
+        console.log('reacting to lain')
+        await message.react('🤓')
+        await message.react('<:aired:1256435496041840640>')
+        await message.react('🍅')
     }
 
     if (message.content.includes('coomer.su')) {
@@ -1252,6 +1379,10 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
+            if (!isAdmin(message.member)) {
+                return;
+            }
+
             const valid = await isValidGptRoleId(userId);
             const gptChannelDoc = await logChannels.findOne({ guildId: message.guild.id });
             const gptDrawChannelId = gptChannelDoc ? gptChannelDoc.gptDrawChannelId : null;
@@ -1263,7 +1394,6 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            // Check if user is in validGptRoleIds collection
             if (!valid) {
                 return await message.channel.send('You do not have permission to use this command. Ask Saecro for permission.');
             }
@@ -1286,67 +1416,79 @@ client.on('messageCreate', async message => {
             if (prompt) {
                 try {
                     await message.channel.sendTyping();
-                    // const data = await drawWithAssistant(prompt);
-                    // if (data.error) {
-                    //     throw new Error(data.error.message);
-                    // }
-                    // let base64Image = data.imageData;
-                    // const newPrompt = data.updatedDetail;
-                    // console.log(newPrompt)
+
+                    const useAiPrompt = await askYesNoQuestion(message.channel, 'Use AI prompt enhancement? (yes/no)', message.author);
+
+                    let modifiedPrompt = prompt;
+                    if (useAiPrompt) {
+                        modifiedPrompt = await updatePrompt(prompt);
+                    }
+
+                    const data = await drawWithAssistant(modifiedPrompt, userId);
+
+                    if (data === 'PROMPT FAILED, PLEASE RETRY.') {
+                        return await message.channel.send(data)
+                    }
+
+                    if (data.error) {
+                        throw new Error(data.error.message);
+                    }
+                    const base64Image = data.imageData;
+                    const newPrompt = data.updatedDetail;
+                    console.log(newPrompt);
 
                     const row1 = new Discord.ActionRowBuilder()
                         .addComponents(
                             new Discord.ButtonBuilder()
-                                .setCustomId('U1')
+                                .setCustomId(`drawButton U1_${userId}`)
                                 .setLabel('U1')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('U2')
+                                .setCustomId(`drawButton U2_${userId}`)
                                 .setLabel('U2')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('U3')
+                                .setCustomId(`drawButton U3_${userId}`)
                                 .setLabel('U3')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('U4')
+                                .setCustomId(`drawButton U4_${userId}`)
                                 .setLabel('U4')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('↺')
-                                .setLabel('↺')
+                                .setCustomId(`drawButton 🔄_${userId}`)
+                                .setLabel('🔄')
                                 .setStyle(Discord.ButtonStyle.Danger),
                         );
 
                     const row2 = new Discord.ActionRowBuilder()
                         .addComponents(
                             new Discord.ButtonBuilder()
-                                .setCustomId('V1')
+                                .setCustomId(`drawButton V1_${userId}`)
                                 .setLabel('V1')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('V2')
+                                .setCustomId(`drawButton V2_${userId}`)
                                 .setLabel('V2')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('V3')
+                                .setCustomId(`drawButton V3_${userId}`)
                                 .setLabel('V3')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
-                                .setCustomId('V4')
+                                .setCustomId(`drawButton V4_${userId}`)
                                 .setLabel('V4')
                                 .setStyle(Discord.ButtonStyle.Primary),
                         );
 
-                    let base64Image = `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`
                     if (base64Image) {
-                        await message.channel.send('prompt:``' + 'newPrompt' + '``');
+                        await message.channel.send('prompt:``' + newPrompt + '``');
                         await message.channel.send({
                             files: [{
                                 attachment: Buffer.from(base64Image, 'base64'),
                                 name: 'drawn_image.png'
                             }], components: [row1, row2]
-                        })
+                        });
                     } else {
                         await message.channel.send('Failed to generate image.');
                         cooldowns.gptdraw.delete(userId);
@@ -1548,20 +1690,22 @@ client.on('messageCreate', async message => {
             }
         } else if (command === '!rape') {
             try {
-                let user = message.mentions.users.first();
+                let mentionedUser = message.mentions.users.first();
                 let member = message.guild.members.cache.get(message.author.id);
-                if (user?.id === '1242601206627434708') {
+
+                if (!mentionedUser) {
+                    return await message.channel.send("Please mention a valid user.");
+                }
+
+                if (mentionedUser.id === '1242601206627434708') {
                     return message.channel.send("you can't rape the bot nigga.")
                 }
                 const hasRequiredRole = member.roles.cache.some(role =>
                     ['1210746667427561563', '1138038219775160441'].includes(role.id)
                 );
 
-                if (!user) {
-                    return await message.channel.send("Please mention a valid user.");
-                }
 
-                const checkUser = message.guild.members.cache.get(user.id);
+                const checkUser = message.guild.members.cache.get(mentionedUser.id);
                 if (!checkUser) {
                     return await message.channel.send("The mentioned user is not in the guild.");
                 }
@@ -1577,16 +1721,16 @@ client.on('messageCreate', async message => {
                 if (!hasRequiredRole) {
                     return await message.channel.send("Your greenie ass can't rape anyone");
                 }
-                let desc = `<@${user.id}> has been raped!`;
-                if (user) {
+                let desc = `<@${mentionedUser.id}> has been raped!`;
+                if (mentionedUser) {
 
-                    console.log(user.id, userId)
-                    if (user.id !== userId) {
-                        if (user.id === saecro) {
+                    console.log(mentionedUser.id, userId)
+                    if (mentionedUser.id !== userId) {
+                        if (mentionedUser.id === saecro) {
                             desc = `Saecro cannot be raped. but he can counter rape you!\nSaecro just **__*ULTRA RAPED*__** <@${userId}>`
                         }
-                        if (user.id === '665804779141726221' || userId === saecro) {
-                            desc = `<@${user.id}> has been **EXTRA** raped`
+                        if (mentionedUser.id === '665804779141726221' || userId === saecro) {
+                            desc = `<@${mentionedUser.id}> has been **EXTRA** raped`
                         }
                         const randomGifPath = getRandomGif();
                         const embed = new Discord.EmbedBuilder()
@@ -1930,9 +2074,134 @@ client.on('messageCreate', async message => {
     }
 });
 
-
 client.on('interactionCreate', async interaction => {
-    if (interaction.customId.includes(interaction.user.id)) {
+    if (interaction.customId.startsWith('drawButton')) {
+        try {
+            await interaction.deferUpdate(); // Acknowledge the interaction immediately
+
+            const buttonID = interaction.customId.replace('drawButton ', '').split('_')[0];
+            let buttonLabel;
+
+            // Map button IDs to labels if they are for larger buttons
+            if (['upscaleSubtle', 'upscaleCreative', 'varySubtle', 'varyStrong', 'varyRegion', 'zoomOut2x', 'zoomOut1.5x', 'customZoom', 'leftArrow', 'rightArrow', 'upArrow', 'downArrow'].includes(buttonID)) {
+                // If it's one of the larger buttons, use the label
+                const button = interaction.component; // Get the component that triggered the interaction
+                buttonLabel = button.label; // Get the label of the button
+            } else {
+                // Otherwise, use the button ID
+                buttonLabel = buttonID;
+            }
+
+            // Check if the button is one of U1, U2, U3, U4
+            if (['U1', 'U2', 'U3', 'U4'].includes(buttonID)) {
+                const data = await updateWithAssistant(interaction.user.id, buttonLabel);
+                if (data === 'PROMPT FAILED, PLEASE RETRY.') {
+                    return await message.channel.send(data)
+                }
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+
+                const base64Image = data.imageData;
+                if (base64Image) {
+                    // Replace buttons for U1, U2, U3, U4
+                    const row1 = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton upscaleSubtle_${interaction.user.id}`)
+                                .setLabel('Upscale (Subtle)')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton upscaleCreative_${interaction.user.id}`)
+                                .setLabel('Upscale (Creative)')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton varySubtle_${interaction.user.id}`)
+                                .setLabel('Vary (Subtle)')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton varyStrong_${interaction.user.id}`)
+                                .setLabel('Vary (Strong)')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton varyRegion_${interaction.user.id}`)
+                                .setLabel('Vary (Region)')
+                                .setStyle(Discord.ButtonStyle.Primary)
+                        );
+
+                    const row2 = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton zoomOut2x_${interaction.user.id}`)
+                                .setLabel('Zoom Out 2x')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton zoomOut1.5x_${interaction.user.id}`)
+                                .setLabel('Zoom Out 1.5x')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton customZoom_${interaction.user.id}`)
+                                .setLabel('Custom Zoom')
+                                .setStyle(Discord.ButtonStyle.Primary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton leftArrow_${interaction.user.id}`)
+                                .setLabel('⬅️')
+                                .setStyle(Discord.ButtonStyle.Secondary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton rightArrow_${interaction.user.id}`)
+                                .setLabel('➡️')
+                                .setStyle(Discord.ButtonStyle.Secondary)
+                        );
+
+                    const row3 = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton upArrow_${interaction.user.id}`)
+                                .setLabel('⬆️')
+                                .setStyle(Discord.ButtonStyle.Secondary),
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`drawButton downArrow_${interaction.user.id}`)
+                                .setLabel('⬇️')
+                                .setStyle(Discord.ButtonStyle.Secondary)
+                        );
+
+                    await interaction.followUp({
+                        content: "Here is the updated image and new options:",
+                        files: [{
+                            attachment: Buffer.from(base64Image, 'base64'),
+                            name: 'updated_image.png'
+                        }],
+                        components: [row1, row2, row3]
+                    });
+                } else {
+                    await interaction.followUp({ content: 'Failed to update image.', ephemeral: true });
+                }
+            } else {
+                // For V1, V2, V3, V4, keep the original buttons
+                const data = await updateWithAssistant(interaction.user.id, buttonLabel);
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+
+                const base64Image = data.imageData;
+                if (base64Image) {
+                    await interaction.followUp({
+                        content: "Here is the updated image:",
+                        files: [{
+                            attachment: Buffer.from(base64Image, 'base64'),
+                            name: 'updated_image.png'
+                        }],
+                        components: interaction.message.components
+                    });
+                } else {
+                    await interaction.followUp({ content: 'Failed to update image.', ephemeral: true });
+                }
+            }
+        } catch (error) {
+            console.error('Error handling button interaction:', error);
+            await interaction.followUp({ content: 'Failed to process your request.', ephemeral: true });
+        }
+    } else if (interaction.customId.includes(interaction.user.id)) {
         console.log('\n\n')
         console.log(`[interactionCreate] Interaction received: ${interaction.customId}`);
         await sudokuGame.handleInteraction(interaction);
