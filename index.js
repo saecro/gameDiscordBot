@@ -928,6 +928,7 @@ client.on('messageCreate', async message => {
     const guildId = message.guild.id;
     if (command === '!gptdraw') {
         if (!isAdmin(message.member) || userId !== lila) {
+await message.channel.send('you are not a admin'l
             return
         }
     }
@@ -1380,6 +1381,7 @@ client.on('messageCreate', async message => {
             }
         } else if (command === '!gptdraw') {
             if (!isAdmin(message.member) || userId !== lila) {
+await message.channel.send('not admin')
                 return;
             }
 
