@@ -17,6 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
 const saecro = '805009105855971329';
+const lila = '522993811375390723';
 const uno = '932381872414138388'
 const cooldowns = {
     gpt: new Map(),
@@ -1407,7 +1408,7 @@ client.on('messageCreate', async message => {
                     return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
-            if (userId !== saecro) {
+            if (userId !== saecro || userId !== lila) {
                 cooldowns.gptdraw.set(userId, now);
                 setTimeout(() => cooldowns.gptdraw.delete(userId), cooldownAmount);
             }
