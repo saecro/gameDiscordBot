@@ -927,7 +927,7 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
     if (command === '!gptdraw') {
-        if (!isAdmin(message.member)) {
+        if (!isAdmin(message.member || userId !== lila)) {
             return
         }
     }
