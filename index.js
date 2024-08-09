@@ -931,8 +931,7 @@ client.on('messageCreate', async message => {
         }
     }
 
-    if (userId === '1157920308154597406') {
-        console.log('reacting to lain')
+    if (message.member.roles.cache.has('1271270055044186114')) {
         await message.react('🤓')
         await message.react('<:aired:1256435496041840640>')
         await message.react('🍅')
