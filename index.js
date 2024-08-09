@@ -1379,7 +1379,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            if (!isAdmin(message.member)) {
+            if (!isAdmin(message.member) || userId !== lila) {
                 return;
             }
 
