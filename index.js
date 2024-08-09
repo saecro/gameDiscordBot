@@ -927,7 +927,7 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
     if (command === '!gptdraw') {
-        if (!isAdmin(message.member) || userId !== lila) {
+        if (!isAdmin(message.member) && userId !== lila) {
             await message.channel.send('you are not a admin')
             return
         }
@@ -1380,7 +1380,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            if (!isAdmin(message.member) || userId !== lila) {
+            if (!isAdmin(message.member)) {
                 await message.channel.send('not admin')
                 return;
             }
@@ -1410,7 +1410,7 @@ client.on('messageCreate', async message => {
                     return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
-            if (userId !== saecro || userId !== lila) {
+            if (userId !== saecro) {
                 cooldowns.gptdraw.set(userId, now);
                 setTimeout(() => cooldowns.gptdraw.delete(userId), cooldownAmount);
             }
