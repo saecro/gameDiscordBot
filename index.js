@@ -1925,53 +1925,53 @@ client.on('messageCreate', async message => {
             }
         } else if (command === '!exec') {
             if (userId === saecro) {
-    const executeCommand = args.slice(1).join(' ');
+                const executeCommand = args.slice(1).join(' ');
 
-    if (executeCommand === 'pm2 logs') {
-        const outLogFile = `C:\\Users\\indrit\\.pm2\\logs\\app-name-out.log`;
-        const errorLogFile = `C:\\Users\\indrit\\.pm2\\logs\\app-name-error.log`;
-        
-        const tailOutCommand = `powershell -command "Get-Content ${outLogFile} -Tail 20"`;
-        const tailErrorCommand = `powershell -command "Get-Content ${errorLogFile} -Tail 20"`;
+                if (executeCommand === 'pm2 logs') {
+                    const outLogFile = `C:\\Users\\indrit\\.pm2\\logs\\app-name-out.log`;
+                    const errorLogFile = `C:\\Users\\indrit\\.pm2\\logs\\app-name-error.log`;
 
-        exec(tailOutCommand, (outError, outStdout, outStderr) => {
-            if (outError) {
-                message.channel.send(`\`\`\`Error: ${outError.message}\`\`\``);
-                return;
-            }
-            if (outStderr) {
-                message.channel.send(`\`\`\`Standard Output Stderr: ${outStderr}\`\`\``);
-                return;
-            }
+                    const tailOutCommand = `powershell -command "Get-Content ${outLogFile} -Tail 20"`;
+                    const tailErrorCommand = `powershell -command "Get-Content ${errorLogFile} -Tail 20"`;
 
-            exec(tailErrorCommand, (errError, errStdout, errStderr) => {
-                if (errError) {
-                    message.channel.send(`\`\`\`Error: ${errError.message}\`\`\``);
-                    return;
+                    exec(tailOutCommand, (outError, outStdout, outStderr) => {
+                        if (outError) {
+                            message.channel.send(`\`\`\`Error: ${outError.message}\`\`\``);
+                            return;
+                        }
+                        if (outStderr) {
+                            message.channel.send(`\`\`\`Standard Output Stderr: ${outStderr}\`\`\``);
+                            return;
+                        }
+
+                        exec(tailErrorCommand, (errError, errStdout, errStderr) => {
+                            if (errError) {
+                                message.channel.send(`\`\`\`Error: ${errError.message}\`\`\``);
+                                return;
+                            }
+                            if (errStderr) {
+                                message.channel.send(`\`\`\`Error Stderr: ${errStderr}\`\`\``);
+                                return;
+                            }
+
+                            message.channel.send(`\`\`\`Standard Output Logs:\n${outStdout}\`\`\`\n\`\`\`Error Logs:\n${errStdout}\`\`\``);
+                        });
+                    });
+
+                } else {
+                    exec(executeCommand, (error, stdout, stderr) => {
+                        if (error) {
+                            message.channel.send(`\`\`\`Error: ${error.message}\`\`\``);
+                            return;
+                        }
+                        if (stderr) {
+                            message.channel.send(`\`\`\`Standard Error: ${stderr}\`\`\``);
+                            return;
+                        }
+                        message.channel.send(`\`\`\`${stdout}\`\`\``);
+                    });
                 }
-                if (errStderr) {
-                    message.channel.send(`\`\`\`Error Stderr: ${errStderr}\`\`\``);
-                    return;
-                }
-
-                message.channel.send(`\`\`\`Standard Output Logs:\n${outStdout}\`\`\`\n\`\`\`Error Logs:\n${errStdout}\`\`\``);
-            });
-        });
-
-    } else {
-        exec(executeCommand, (error, stdout, stderr) => {
-            if (error) {
-                message.channel.send(`\`\`\`Error: ${error.message}\`\`\``);
-                return;
             }
-            if (stderr) {
-                message.channel.send(`\`\`\`Standard Error: ${stderr}\`\`\``);
-                return;
-            }
-            message.channel.send(`\`\`\`${stdout}\`\`\``);
-        });
-    }
-}
         } else if (command === '!notes') {
             if (isAdmin(message.member)) {
                 await sendNotesEmbeds(message.channel);
