@@ -2162,8 +2162,27 @@ client.on('messageCreate', async message => {
             if (isAdmin(message.member)) {
                 const userMention = message.mentions.users.first();
                 if (!userMention) {
-                    return message.reply('Please mention a user.');
+                let Description = '';
+                try {
+                    const autodeletedUsers = await autoDeleteCollection.findOne({}).toArray();
+                    if (autodeletedUsers.length > 0) {
+                        autodeletedUsers.forEach((user, index) => {
+                            Description += `${index + 1}. <@${user.userId}>\n`;
+                        });
+                    } else {
+                        Description = 'No Users being autoDeleted';
+                    }
+                } catch (e) {
+                    Description = 'No Users being Autodeleted';
                 }
+
+                const embed = new Discord.EmbedBuilder()
+                    .setTitle('Autodeleted Users')
+                    .setDescription(Description)
+                    .setColor('#ff0000');
+
+                return await message.channel.send({ embeds: [embed] });
+            }
 
                 const userId = userMention.id;
                 const guildId = message.guild.id;
