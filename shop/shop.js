@@ -42,7 +42,7 @@ async function listShopItems(message) {
     const items = await shopItemsCollection.find().toArray();
 
     if (items.length === 0) {
-        return message.channel.send('The shop is currently empty.');
+        return await message.channel.send('The shop is currently empty.');
     }
 
     const chunkSize = 25;
@@ -110,14 +110,14 @@ async function buyItem(message, itemName, quantity = 1) {
     const item = await shopItemsCollection.findOne({ name: new RegExp(`^${itemName}$`, 'i') });
 
     if (!item) {
-        return message.channel.send('This item does not exist.');
+        return await message.channel.send('This item does not exist.');
     }
 
     const userCurrency = await getOrCreateUserCurrency(userId);
     const totalCost = item.price * quantity;
 
     if (userCurrency < totalCost) {
-        return message.channel.send('You do not have enough coins to buy this quantity of the item.');
+        return await message.channel.send('You do not have enough coins to buy this quantity of the item.');
     }
 
     await updateUserCurrency(userId, -totalCost);
@@ -144,7 +144,7 @@ async function showInventory(message) {
     const userItems = await userItemsCollection.find({ discordID: userId }).toArray();
 
     if (userItems.length === 0) {
-        return message.channel.send('Your inventory is empty.');
+        return await message.channel.send('Your inventory is empty.');
     }
 
     const embed = new EmbedBuilder()

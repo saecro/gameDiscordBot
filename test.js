@@ -1,40 +1,41 @@
-const fs = require('fs')
-const Discord = require('discord.js');
-const readline = require('readline');
+const { Client, GatewayIntentBits, PermissionsBitField } = require('discord.js');
 require('dotenv').config()
-// Create a new client instance
-const client = new Discord.Client({
+const client = new Client({
     intents: [
-        Discord.GatewayIntentBits.Guilds,
-        Discord.GatewayIntentBits.GuildMessages,
-        Discord.GatewayIntentBits.MessageContent,
-        Discord.GatewayIntentBits.GuildMessageReactions,
-        Discord.GatewayIntentBits.GuildMembers
-    ]
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildInvites,
+    ],
 });
-
-
-const USER_ID = '522993811375390723'
-
-const guildId = '1131410686975684739'; // Replace with your guild's ID
-const newNickname = 'cumslut'; // The new nickname you want to set
 
 client.once('ready', async () => {
-    console.log('Bot is online!');
+    console.log(`Logged in as ${client.user.tag}!`);
 
-    try {
-        // Fetch the guild
-        const guild = await client.guilds.fetch(guildId);
+    const inviteLinks = [];
 
-        // Fetch the guild member
-        const member = await guild.members.fetch(USER_ID);
+    for (const [guildId, guild] of client.guilds.cache) {
+        try {
+            // Fetching the first available text channel in the server where the bot can create an invite
+            const channel = guild.channels.cache.find(
+                ch => 
+                    ch.isTextBased() && 
+                    ch.permissionsFor(guild.members.me).has(PermissionsBitField.Flags.CreateInstantInvite)
+            );
 
-        // Change the nickname
-        await member.setNickname(newNickname);
-        console.log(`Changed nickname of ${member.user.tag} to ${newNickname}`);
-    } catch (error) {
-        console.error('Error changing nickname:', error);
+            if (!channel) {
+                console.log(`No channel with invite permission found in ${guild.name}`);
+                continue;
+            }
+
+            // Create an invite for the selected channel
+            const invite = await channel.createInvite({ maxAge: 0, maxUses: 1, unique: true });
+            inviteLinks.push({ guild: guild.name, invite: invite.url });
+            console.log(`Created invite for ${guild.name}: ${invite.url}`);
+        } catch (error) {
+            console.error(`Could not create invite for ${guild.name}:`, error);
+        }
     }
+
+    console.log('All invite links:', inviteLinks);
 });
-// Login to Discord with your app's token
+
 client.login(process.env.DISCORD_TOKEN);

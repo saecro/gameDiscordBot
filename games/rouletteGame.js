@@ -141,9 +141,9 @@ async function startRouletteGame(client, message) {
             }
         });
 
-        collector.on('end', collected => {
+        collector.on('end', async collected => {
             if (collected.size === 0) {
-                message.channel.send('Time ran out! No bets were placed.');
+                await message.channel.send('Time ran out! No bets were placed.');
                 console.log('No bets were placed. Collector timed out.');
             }
         });

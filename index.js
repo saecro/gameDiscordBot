@@ -88,7 +88,6 @@ async function getAura(userId) {
     console.log(`User aura: ${user ? user.aura : 0}`);
     return user ? user.aura : 0;
 }
-const notesFilePath = path.join(__dirname, 'notes.json');
 
 // Initialize Discord Client
 const database = mongoClient.db('discordGameBot');
@@ -96,6 +95,8 @@ const blockedCommandsCollection = database.collection('blockedCommands');
 const toggledCommandsCollection = database.collection('toggledCommands');
 const limitGamesCollection = database.collection('limitGames');
 const validGptRoleIds = database.collection('validGptRoleIds');
+const autoDeleteCollection = database.collection('autoDelete');
+const blacklistCollection = database.collection('blacklist');
 const timezoneCollection = database.collection('timezones');
 const currencyCollection = database.collection('currency');
 const logChannels = database.collection('LogChannels');
@@ -106,7 +107,6 @@ const timeoutLogs = database.collection('Timeouts');
 const logChannel = database.collection('AIChannels');
 const botServers = database.collection('botGuilds');
 const auraCollection = database.collection('aura');
-const blacklistCollection = database.collection('blacklist');
 const notesCollection = database.collection('notes');
 app.locals.db = database;
 
@@ -275,7 +275,7 @@ async function leaderboard(message) {
         });
     }
 
-    return message.channel.send({ embeds: [embed] });
+    return await message.channel.send({ embeds: [embed] });
 }
 
 async function sendMessageInParts(channel, message) {
@@ -362,6 +362,26 @@ function getRandomGif() {
     const randomGif = gifs[Math.floor(Math.random() * gifs.length)];
     console.log(`Selected random gif: ${randomGif}`);
     return path.join('gifs', randomGif);
+}
+
+function parseTime(timeStr) {
+    const timeRegex = /^(\d+)([hms])$/;
+    const match = timeStr.match(timeRegex);
+    if (!match) return null;
+
+    const amount = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+        case 'h':
+            return amount * 60 * 60 * 1000;
+        case 'm':
+            return amount * 60 * 1000;
+        case 's':
+            return amount * 1000;
+        default:
+            return null;
+    }
 }
 
 async function isValidGptRoleId(userId) {
@@ -494,7 +514,11 @@ async function chatWithAssistant(userId, userMessage) {
     let conversation_history = await getChatHistory(userId);
     conversation_history.push({
         role: 'system',
-        content: `Hello, I'm here to be your nice and supportive friend. I'm always ready to lend a helping hand whenever you need it. Whether you have questions, need advice, or just want someone to talk to, I'm here for you. You can count on me to be there and provide assistance with anything you need. Let's make this a great experience together!`,
+        content: `Hey there! I'm here to be your friendly and supportive buddy. Whether you've got questions, need some advice, or just want to chat, I'm always ready to help out. You can count on me to be here for you, no matter what you need.
+
+        Oh, and just a heads up—since we're on Discord, I've got to keep the formatting simple. So while I might want to use fancy headers or styles, I'll stick to basic markdown like **bold**, *italic*, and \`inline code\` to keep things looking good.
+        
+        Let's make this a great time together!`,
     });
     conversation_history.push({ role: "user", content: userMessage });
 
@@ -517,16 +541,34 @@ async function updatePrompt(userMessage) {
         role: 'system',
         content: `
 You are an AI prompt enhancer that refines and optimizes user-provided prompts by clarifying intent, enriching details, and applying relevant Midjourney parameters to ensure vivid, actionable, and precise outputs. Key parameters include:
-- '--aspect': Sets the aspect ratio (e.g., 16:9).
-- '--chaos': Increases randomness in the output.
-- '--quality': Determines rendering quality.
-- '--stylize': Controls artistic style application.
-- '--seed': Fixes random generation for consistency.
-- '--tile': Generates seamless textures.
-- '--no': Excludes specific elements.
-- '--sameseed': Ensures consistent details across variations. 
 
-The final prompt is concise, impactful, and creatively aligned with user goals.`
+Basic Parameters:
+- Aspect Ratios: --aspect, or --ar to change the aspect ratio of a generation.
+- Chaos: --chaos <number 0-100> to adjust the variety and unpredictability of the results. Higher values produce more unusual generations.
+- Character Reference: Use images as character references in your prompt to create images of the same character in different situations.
+- Image Weight: --iw <0-3> sets image prompt weight relative to text weight. Default is 1.
+- No: --no for negative prompting, e.g., --no plants to exclude plants from the image.
+- Quality: --quality <.25, .5, or 1>, or --q <.25, .5, or 1> to determine rendering quality. Higher values use more GPU time; lower values use less.
+- Random: --style random adds a random base style to your prompt. You can specify --style random-16, --style random-64, or --style random-128 for different lengths.
+- Relax: --relax to override your current setting and run a single job using Relax Mode.
+- Seed: --seed <integer 0-4294967295> to fix the random generation for consistent results across variations.
+- Stop: --stop <integer 10-100> to finish a job partway through the process, useful for creating blurrier, less detailed results.
+- Style: --style <option> to switch between different Midjourney or Niji model versions or custom style codes.
+- Stylize: --stylize <number>, or --s <number> to control the degree of Midjourney's default aesthetic style applied to a job.
+- Tile: --tile to generate images that can be used as repeating tiles for seamless patterns.
+- Weird: --weird <number 0-3000>, or --w <number 0-3000> to explore unusual aesthetics with the experimental Weird parameter.
+
+Banned Words:
+Gore Words: Gore, Blood, Bloodbath, Crucifixion, Bloody, Flesh, Bruises, Car crash, Corpse, Crucified, Cutting, Decapitate, Infested, Gruesome, Kill (as in Kill la Kill), Infected, Sadist, Slaughter, Teratoma, Tryphophobia, Wound, Cronenberg, Khorne, Cannibal, Cannibalism, Visceral, Guts, Bloodshot, Gory, Killing, Surgery, Vivisection, Massacre, Hemoglobin, Suicide, Female Body Parts.
+Adult Words: ahegao, pinup, ballgag, Playboy, Bimbo, pleasure, pleasures, boudoir, rule34, brothel, seducing, dominatrix, seductive, erotic seductive, fuck, sensual, Hardcore, sexy, Hentai, Shag, horny, shibari (bondage in Japanese), incest, Smut, jav, succubus, Jerk off king at pic, thot, kinbaku (bondage in Japanese), transparent, legs spread, twerk, making love, voluptuous, naughty, wincest, orgy, Sultry, XXX, Bondage, Bdsm, Dog collar, Slavegirl, Transparent and Translucent.
+Body Parts Words: Arse, Labia, Ass, Mammaries, Human centipede, Badonkers, Minge (Slang for vag), Massive chests, Big Ass, Mommy Milker (milker or mommy is fine), Booba, Nipple, Booty, Oppai (Japanese word for breasts), Bosom, Organs, Breasts, Ovaries, Busty, Penis, Clunge (British slang for vagina), Phallus, Crotch, sexy female, Dick (as in Moby-Dick), Skimpy, Girth, Thick, Honkers, Vagina, Hooters, Veiny, Knob.
+Clothing Words: no clothes, Speedo, au naturale, no shirt, bare chest, nude, barely dressed, bra, risqué, clear, scantily, clad, cleavage, stripped, full frontal unclothed, invisible clothes, wearing nothing, lingerie with no shirt, naked, without clothes on, negligee, zero clothes.
+Taboo Words: Taboo, Fascist, Nazi, Prophet Mohammed, Slave, Coon, Honkey, Arrested, Jail, Handcuffs.
+Drugs Words: Drugs, Cocaine, Heroin, Meth, Crack.
+Other Banned Words: Torture, Disturbing, Farts, Fart, Poop, Warts, Xi Jinping, Shit, Pleasure, Errect, Big Black, Brown pudding, Bunghole, Vomit, Voluptuous, Seductive, Sperm, Hot, Sexy, Sensored, Censored, Silenced, Deepfake, Inappropriate, Pus, Waifu, mp5, Succubus, 1488, Surgery.
+
+The final prompt should be concise, impactful, and creatively aligned with user goals, ensuring vivid and precise outputs.
+`
     });
     conversation_history.push({ role: "user", content: userMessage });
 
@@ -544,7 +586,7 @@ async function setTimezone(message, location, userId) {
     console.log(`Setting timezone for userId: ${userId}, location: ${location}`);
 
     if (!location) {
-        return message.channel.send('Please provide a valid location in the format `!tz set [City, Country/State]`.');
+        return await message.channel.send('Please provide a valid location in the format `!tz set [City, Country/State]`.');
     }
 
     const normalizedLocation = location.toLowerCase();
@@ -555,7 +597,7 @@ async function setTimezone(message, location, userId) {
     }
 
     if (!timezone) {
-        return message.channel.send('Invalid timezone or location name. Please provide a valid city, optionally with country or state.');
+        return await message.channel.send('Invalid timezone or location name. Please provide a valid city, optionally with country or state.');
     }
 
     await timezoneCollection.updateOne(
@@ -564,7 +606,7 @@ async function setTimezone(message, location, userId) {
         { upsert: true }
     );
 
-    message.channel.send(`Timezone for ${message.author.username} has been set to ${timezone}.`);
+    await message.channel.send(`Timezone for ${message.author.username} has been set to ${timezone}.`);
 }
 
 async function showTimezone(message, userId) {
@@ -573,7 +615,7 @@ async function showTimezone(message, userId) {
     const userTimezone = await timezoneCollection.findOne({ discordID: userId });
 
     if (!userTimezone) {
-        return message.channel.send('You have not set a timezone yet.');
+        return await message.channel.send('You have not set a timezone yet.');
     }
 
     const currentTime = moment().tz(userTimezone.timezone).format('HH:mm:ss');
@@ -917,6 +959,18 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 });
 
 let currentGame = null;
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+
+    const userId = user.id;
+    const guildId = reaction.message.guild.id;
+
+    const autoDeleteEntry = await autoDeleteCollection.findOne({ userId, guildId });
+    if (autoDeleteEntry) {
+        await reaction.users.remove(user).catch(console.error);
+        return;
+    }
+});
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
@@ -926,11 +980,11 @@ client.on('messageCreate', async message => {
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
-    if (command === '!gptdraw') {
-        if (!isAdmin(message.member) && userId !== lila) {
-            await message.channel.send('you are not a admin')
-            return
-        }
+    const autoDeleteEntry = await autoDeleteCollection.findOne({ userId, guildId });
+   
+    if (autoDeleteEntry) {
+        await message.delete().catch(console.error);
+        return;
     }
 
     if (message.member.roles.cache.has('1271270055044186114')) {
@@ -975,26 +1029,26 @@ client.on('messageCreate', async message => {
 
     if (command.startsWith('!')) {
         if (await isCommandToggledOff(command, guildId)) {
-            return message.channel.send(`The command \`${command}\` is currently disabled in this server.`);
+            return await message.channel.send(`The command \`${command}\` is currently disabled in this server.`);
         }
         const blockedChannelCommands = await blockedCommandsCollection.findOne({ channelId: message.channel.id });
         if (blockedChannelCommands && blockedChannelCommands.blockedCommands.includes(command)) {
             return false;
         }
         if (blacklistedUser) {
-            return message.channel.send(`You are blacklisted from using commands.`);
+            return await message.channel.send(`You are blacklisted from using commands.`);
         }
 
         await getOrCreateUserCurrency(message.author.id); // Ensure the user currency is initialized
         if (command === '!switch') {
             if (!isAdmin(message.member)) {
-                return message.channel.send('You do not have permission to use this command.');
+                return await message.channel.send('You do not have permission to use this command.');
             }
 
             const commandsToToggle = args.slice(1);
 
             if (commandsToToggle.length === 0) {
-                return message.channel.send('Please provide the commands to toggle.');
+                return await message.channel.send('Please provide the commands to toggle.');
             }
 
             for (const cmd of commandsToToggle) {
@@ -1011,7 +1065,7 @@ client.on('messageCreate', async message => {
             return;
         } else if (command === '!blacklist') {
             if (!isAdmin(message.member)) {
-                return message.channel.send('You do not have permission to use this command.');
+                return await message.channel.send('You do not have permission to use this command.');
             }
 
             const mentionedUser = message.mentions.users.first();
@@ -1380,7 +1434,7 @@ client.on('messageCreate', async message => {
                 await message.channel.send('Please provide a prompt after the command.');
             }
         } else if (command === '!gptdraw') {
-            if (!isAdmin(message.member)) {
+            if (!isAdmin(message.member) && userId !== lila) {
                 await message.channel.send('not admin')
                 return;
             }
@@ -1410,7 +1464,7 @@ client.on('messageCreate', async message => {
                     return await message.channel.send(`Please wait ${timeLeft.toFixed(1)} more seconds before reusing the \`!gptdraw\` command.`);
                 }
             }
-            if (userId !== saecro) {
+            if (userId !== saecro || userId !== lila) {
                 cooldowns.gptdraw.set(userId, now);
                 setTimeout(() => cooldowns.gptdraw.delete(userId), cooldownAmount);
             }
@@ -1685,22 +1739,22 @@ client.on('messageCreate', async message => {
                 const attachment = new Discord.AttachmentBuilder(imagePath);
 
                 // Send the attachment in the message channel
-                message.channel.send({ files: [attachment] });
+                await message.channel.send({ files: [attachment] });
             } else {
                 // If the file does not exist, send an error message
-                message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
+                await message.channel.send('The file `teaserimage.jpg` does not exist in the directory.');
             }
         } else if (command === '!rape') {
             try {
                 let mentionedUser = message.mentions.users.first();
                 let member = message.guild.members.cache.get(message.author.id);
-
+                let desc = `<@${mentionedUser.id}> has been raped!`;
                 if (!mentionedUser) {
                     return await message.channel.send("Please mention a valid user.");
                 }
 
                 if (mentionedUser.id === '1242601206627434708') {
-                    return message.channel.send("you can't rape the bot nigga.")
+                    return await message.channel.send("you can't rape the bot nigga.")
                 }
                 const hasRequiredRole = member.roles.cache.some(role =>
                     ['1210746667427561563', '1138038219775160441'].includes(role.id)
@@ -1717,13 +1771,13 @@ client.on('messageCreate', async message => {
                 );
 
                 if (!userHasRole) {
-                    return await message.channel.send('Trust me, you do not want to rape a greenie, them niggas got STDs');
+                    desc = ('Trust me, you do not want to rape a greenie, them niggas got STDs');
                 }
 
                 if (!hasRequiredRole) {
                     return await message.channel.send("Your greenie ass can't rape anyone");
                 }
-                let desc = `<@${mentionedUser.id}> has been raped!`;
+
                 if (mentionedUser) {
 
                     console.log(mentionedUser.id, userId)
@@ -1891,7 +1945,7 @@ client.on('messageCreate', async message => {
         } else if (command === '!resetmoney') {
             if (message.author.id === saecro) {
                 currencyCollection.deleteMany({});
-                return message.channel.send('deleted all records on Database.');
+                return await message.channel.send('deleted all records on Database.');
             }
         } else if (command === '!give') {
             if (userId === saecro) {
@@ -1934,41 +1988,40 @@ client.on('messageCreate', async message => {
                     const tailOutCommand = `powershell -command "Get-Content ${outLogFile} -Tail 20"`;
                     const tailErrorCommand = `powershell -command "Get-Content ${errorLogFile} -Tail 20"`;
 
-                    exec(tailOutCommand, (outError, outStdout, outStderr) => {
+                    exec(tailOutCommand, async (outError, outStdout, outStderr) => {
                         if (outError) {
-                            message.channel.send(`\`\`\`Error: ${outError.message}\`\`\``);
+                            await message.channel.send(`\`\`\`Error: ${outError.message}\`\`\``);
                             return;
                         }
                         if (outStderr) {
-                            message.channel.send(`\`\`\`Standard Output Stderr: ${outStderr}\`\`\``);
+                            await message.channel.send(`\`\`\`Standard Output Stderr: ${outStderr}\`\`\``);
                             return;
                         }
-
-                        exec(tailErrorCommand, (errError, errStdout, errStderr) => {
+                        exec(tailErrorCommand, async (errError, errStdout, errStderr) => {
                             if (errError) {
-                                message.channel.send(`\`\`\`Error: ${errError.message}\`\`\``);
+                                await message.channel.send(`\`\`\`Error: ${errError.message}\`\`\``);
                                 return;
                             }
                             if (errStderr) {
-                                message.channel.send(`\`\`\`Error Stderr: ${errStderr}\`\`\``);
+                                await message.channel.send(`\`\`\`Error Stderr: ${errStderr}\`\`\``);
                                 return;
                             }
 
-                            message.channel.send(`\`\`\`Standard Output Logs:\n${outStdout}\`\`\`\n\`\`\`Error Logs:\n${errStdout}\`\`\``);
+                            await message.channel.send(`\`\`\`Standard Output Logs:\n${outStdout}\`\`\`\n\`\`\`Error Logs:\n${errStdout}\`\`\``);
                         });
                     });
 
                 } else {
-                    exec(executeCommand, (error, stdout, stderr) => {
+                    exec(executeCommand, async (error, stdout, stderr) => {
                         if (error) {
-                            message.channel.send(`\`\`\`Error: ${error.message}\`\`\``);
+                            await message.channel.send(`\`\`\`Error: ${error.message}\`\`\``);
                             return;
                         }
                         if (stderr) {
-                            message.channel.send(`\`\`\`Standard Error: ${stderr}\`\`\``);
+                            await message.channel.send(`\`\`\`Standard Error: ${stderr}\`\`\``);
                             return;
                         }
-                        message.channel.send(`\`\`\`${stdout}\`\`\``);
+                        await message.channel.send(`\`\`\`${stdout}\`\`\``);
                     });
                 }
             }
@@ -2074,13 +2127,13 @@ client.on('messageCreate', async message => {
             const roleId = args[1];
 
             if (!roleId) {
-                return message.channel.send('Please provide a role ID.');
+                return await message.channel.send('Please provide a role ID.');
             }
 
             const role = message.guild.roles.cache.get(roleId);
 
             if (!role) {
-                return message.channel.send('Role not found.');
+                return await message.channel.send('Role not found.');
             }
 
             const roleMembers = message.guild.members.cache.filter(member => member.roles.cache.has(role.id)).size;
@@ -2102,11 +2155,69 @@ client.on('messageCreate', async message => {
                 }
             };
 
-            message.channel.send({ embeds: [roleInfoEmbed] });
+            await message.channel.send({ embeds: [roleInfoEmbed] });
         } else if (command === '!startroulette') {
             await rouletteGame.startRouletteGame(client, message);
-        }
+        } else if (command === '!autodelete') {
+            if (isAdmin(message.member)) {
+                const userMention = message.mentions.users.first();
+                if (!userMention) {
+                    return message.reply('Please mention a user.');
+                }
 
+                const userId = userMention.id;
+                const guildId = message.guild.id;
+
+                // Check if there's an active autodelete for this user
+                const existingEntry = await autoDeleteCollection.findOne({ userId, guildId });
+
+                if (existingEntry) {
+                    // If the user already has an autodelete, remove it (undelete)
+                    await autoDeleteCollection.deleteOne({ userId, guildId });
+                    return message.reply(`Auto-delete disabled for <@${userId}>.`);
+                }
+
+                // Parse the optional time argument (e.g., "1h" for 1 hour)
+                let expiresAt = null;
+                console.log(args)
+                if (args[2]) {
+                    const time = parseTime(args[2]);
+                    if (time) {
+                        expiresAt = new Date(Date.now() + time);
+                    } else {
+                        return message.reply('Invalid time format. Use "1h" for 1 hour, "30m" for 30 minutes, etc.');
+                    }
+                }
+
+                // Store the auto-delete information in the database
+                await autoDeleteCollection.insertOne({
+                    userId,
+                    guildId,
+                    expiresAt
+                });
+
+                const timeFormatter = (date) => {
+                    return `<t:${Math.floor(date.getTime() / 1000)}:f>`;
+                };
+
+                message.reply(`Auto-delete enabled for <@${userId}>${expiresAt ? ` until ${timeFormatter(expiresAt)}` : ''}.`);
+
+                // If there's a timer, set it up to automatically remove the entry
+                if (expiresAt) {
+                    setTimeout(async () => {
+                        await autoDeleteCollection.deleteOne({ userId, guildId });
+                        const guild = client.guilds.cache.get(guildId);
+                        const user = await client.users.fetch(userId);
+                        if (guild && user) {
+                            const channel = guild.systemChannel || guild.channels.cache.find(channel => channel.type === 'GUILD_TEXT');
+                            if (channel) {
+                                channel.send(`Auto-delete expired for <@${userId}>.`);
+                            }
+                        }
+                    }, expiresAt - Date.now());
+                }
+            }
+        }
     }
 });
 
@@ -2119,7 +2230,7 @@ client.on('interactionCreate', async interaction => {
             let buttonLabel;
 
             // Map button IDs to labels if they are for larger buttons
-            if (['upscaleSubtle', 'upscaleCreative', 'varySubtle', 'varyStrong', 'varyRegion', 'zoomOut2x', 'zoomOut1.5x', 'customZoom', 'leftArrow', 'rightArrow', 'upArrow', 'downArrow'].includes(buttonID)) {
+            if (['upscaleSubtle', 'upscaleCreative', 'varySubtle', 'varyStrong', 'varyRegion', 'zoomOut2x', 'zoomOut1.5x', 'leftArrow', 'rightArrow', 'upArrow', 'downArrow'].includes(buttonID)) {
                 // If it's one of the larger buttons, use the label
                 const button = interaction.component; // Get the component that triggered the interaction
                 buttonLabel = button.label; // Get the label of the button
@@ -2174,10 +2285,6 @@ client.on('interactionCreate', async interaction => {
                             new Discord.ButtonBuilder()
                                 .setCustomId(`drawButton zoomOut1.5x_${interaction.user.id}`)
                                 .setLabel('Zoom Out 1.5x')
-                                .setStyle(Discord.ButtonStyle.Primary),
-                            new Discord.ButtonBuilder()
-                                .setCustomId(`drawButton customZoom_${interaction.user.id}`)
-                                .setLabel('Custom Zoom')
                                 .setStyle(Discord.ButtonStyle.Primary),
                             new Discord.ButtonBuilder()
                                 .setCustomId(`drawButton leftArrow_${interaction.user.id}`)
