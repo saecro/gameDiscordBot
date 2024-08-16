@@ -1008,12 +1008,6 @@ client.on('messageCreate', async message => {
         await message.react('🍅')
     }
 
-    if (userId === '1260735817064648878') {
-        await message.react('🤓')
-        await message.react('<:aired:1256435496041840640>')
-        await message.react('🍅')
-    }
-
     if (message.content.includes('coomer.su')) {
         message.delete()
     }
