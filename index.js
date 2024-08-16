@@ -960,11 +960,26 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
 let currentGame = null;
 client.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
 
     const userId = user.id;
     const guildId = reaction.message.guild.id;
 
+    if (reaction.message.author.id === '1127937112898019408') {
+        if (reaction.emoji.name === 'L_' && reaction.emoji.id === '1219061401092489306') {
+            // Remove the reaction
+            await reaction.users.remove(user).catch(console.error);
+        }
+
+    }
+
+    if (reaction.message.author.id === '1032831019625222164') {
+        if (reaction.emoji.name === 'W_' && reaction.emoji.id === '1218905050106171483') {
+            // Remove the reaction
+            await reaction.users.remove(user).catch(console.error);
+        }
+    }
+
+    if (user.bot) return;
     const autoDeleteEntry = await autoDeleteCollection.findOne({ userId, guildId });
     if (autoDeleteEntry) {
         await reaction.users.remove(user).catch(console.error);
@@ -981,13 +996,19 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
     const autoDeleteEntry = await autoDeleteCollection.findOne({ userId, guildId });
-   
+
     if (autoDeleteEntry) {
         await message.delete().catch(console.error);
         return;
     }
 
     if (message.member.roles.cache.has('1271270055044186114')) {
+        await message.react('🤓')
+        await message.react('<:aired:1256435496041840640>')
+        await message.react('🍅')
+    }
+
+    if (userId === '1260735817064648878') {
         await message.react('🤓')
         await message.react('<:aired:1256435496041840640>')
         await message.react('🍅')
@@ -2159,84 +2180,84 @@ client.on('messageCreate', async message => {
         } else if (command === '!startroulette') {
             await rouletteGame.startRouletteGame(client, message);
         } else if (command === '!autodelete') {
-    if (isAdmin(message.member)) {
-        const userMention = message.mentions.users.first();
+            if (isAdmin(message.member)) {
+                const userMention = message.mentions.users.first();
 
-        if (!userMention) {
-            let Description = '';
-            try {
-                const autodeletedUsers = await autoDeleteCollection.find({ guildId: message.guild.id }).toArray();
-                if (autodeletedUsers.length > 0) {
-                    autodeletedUsers.forEach((user, index) => {
-                        Description += `${index + 1}. <@${user.userId}>\n`;
-                    });
-                } else {
-                    Description = 'No users being auto-deleted';
+                if (!userMention) {
+                    let Description = '';
+                    try {
+                        const autodeletedUsers = await autoDeleteCollection.find({ guildId: message.guild.id }).toArray();
+                        if (autodeletedUsers.length > 0) {
+                            autodeletedUsers.forEach((user, index) => {
+                                Description += `${index + 1}. <@${user.userId}>\n`;
+                            });
+                        } else {
+                            Description = 'No users being auto-deleted';
+                        }
+                    } catch (e) {
+                        Description = 'Failed to retrieve auto-deleted users';
+                    }
+
+                    const embed = new Discord.EmbedBuilder()
+                        .setTitle('Auto-deleted Users')
+                        .setDescription(Description)
+                        .setColor('#ff0000');
+
+                    return await message.channel.send({ embeds: [embed] });
                 }
-            } catch (e) {
-                Description = 'Failed to retrieve auto-deleted users';
-            }
 
-            const embed = new Discord.EmbedBuilder()
-                .setTitle('Auto-deleted Users')
-                .setDescription(Description)
-                .setColor('#ff0000');
+                const userId = userMention.id;
+                const guildId = message.guild.id;
 
-            return await message.channel.send({ embeds: [embed] });
-        }
+                // Check if there's an active auto-delete for this user
+                const existingEntry = await autoDeleteCollection.findOne({ userId, guildId });
 
-        const userId = userMention.id;
-        const guildId = message.guild.id;
+                if (existingEntry) {
+                    // If the user already has an auto-delete, remove it (undelete)
+                    await autoDeleteCollection.deleteOne({ userId, guildId });
+                    return message.reply(`Auto-delete disabled for <@${userId}>.`);
+                }
 
-        // Check if there's an active auto-delete for this user
-        const existingEntry = await autoDeleteCollection.findOne({ userId, guildId });
-
-        if (existingEntry) {
-            // If the user already has an auto-delete, remove it (undelete)
-            await autoDeleteCollection.deleteOne({ userId, guildId });
-            return message.reply(`Auto-delete disabled for <@${userId}>.`);
-        }
-
-        // Parse the optional time argument (e.g., "1h" for 1 hour)
-        let expiresAt = null;
-        if (args[1]) {
-            const time = parseTime(args[1]);
-            if (time) {
-                expiresAt = new Date(Date.now() + time);
-            } else {
-                return message.reply('Invalid time format. Use "1h" for 1 hour, "30m" for 30 minutes, etc.');
-            }
-        }
-
-        // Store the auto-delete information in the database
-        await autoDeleteCollection.insertOne({
-            userId,
-            guildId,
-            expiresAt
-        });
-
-        const timeFormatter = (date) => {
-            return `<t:${Math.floor(date.getTime() / 1000)}:f>`;
-        };
-
-        message.reply(`Auto-delete enabled for <@${userId}>${expiresAt ? ` until ${timeFormatter(expiresAt)}` : ''}.`);
-
-        // If there's a timer, set it up to automatically remove the entry
-        if (expiresAt) {
-            setTimeout(async () => {
-                await autoDeleteCollection.deleteOne({ userId, guildId });
-                const guild = client.guilds.cache.get(guildId);
-                const user = await client.users.fetch(userId);
-                if (guild && user) {
-                    const channel = guild.systemChannel || guild.channels.cache.find(channel => channel.type === 'GUILD_TEXT');
-                    if (channel) {
-                        channel.send(`Auto-delete expired for <@${userId}>.`);
+                // Parse the optional time argument (e.g., "1h" for 1 hour)
+                let expiresAt = null;
+                if (args[2]) {
+                    const time = parseTime(args[2]);
+                    if (time) {
+                        expiresAt = new Date(Date.now() + time);
+                    } else {
+                        return message.reply('Invalid time format. Use "1h" for 1 hour, "30m" for 30 minutes, etc.');
                     }
                 }
-            }, expiresAt - Date.now());
+
+                // Store the auto-delete information in the database
+                await autoDeleteCollection.insertOne({
+                    userId,
+                    guildId,
+                    expiresAt
+                });
+
+                const timeFormatter = (date) => {
+                    return `<t:${Math.floor(date.getTime() / 1000)}:f>`;
+                };
+
+                message.reply(`Auto-delete enabled for <@${userId}>${expiresAt ? ` until ${timeFormatter(expiresAt)}` : ''}.`);
+
+                // If there's a timer, set it up to automatically remove the entry
+                if (expiresAt) {
+                    setTimeout(async () => {
+                        await autoDeleteCollection.deleteOne({ userId, guildId });
+                        const guild = client.guilds.cache.get(guildId);
+                        const user = await client.users.fetch(userId);
+                        if (guild && user) {
+                            const channel = guild.systemChannel || guild.channels.cache.find(channel => channel.type === 'GUILD_TEXT');
+                            if (channel) {
+                                channel.send(`Auto-delete expired for <@${userId}>.`);
+                            }
+                        }
+                    }, expiresAt - Date.now());
+                }
+            }
         }
-    }
-}
 
     }
 });

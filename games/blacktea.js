@@ -12,7 +12,7 @@ const grab3letters = (WordsToFilter) => {
     let selectedLetters = '';
     let count = 0;
 
-    while (count < 1000) {
+    while (count < 4000) {
         const word = WordsToFilter[Math.floor(Math.random() * WordsToFilter.length)];
         const startIdx = Math.floor(Math.random() * (word.length - 2));
         selectedLetters = word.substring(startIdx, startIdx + 3);

@@ -7,35 +7,45 @@ const client = new Client({
     ],
 });
 
+const guildId = '1131410686975684739';
+const userId = '805009105855971329';
+const roleId = '1203894882742173808';
+
 client.once('ready', async () => {
-    console.log(`Logged in as ${client.user.tag}!`);
-
-    const inviteLinks = [];
-
-    for (const [guildId, guild] of client.guilds.cache) {
-        try {
-            // Fetching the first available text channel in the server where the bot can create an invite
-            const channel = guild.channels.cache.find(
-                ch => 
-                    ch.isTextBased() && 
-                    ch.permissionsFor(guild.members.me).has(PermissionsBitField.Flags.CreateInstantInvite)
-            );
-
-            if (!channel) {
-                console.log(`No channel with invite permission found in ${guild.name}`);
-                continue;
-            }
-
-            // Create an invite for the selected channel
-            const invite = await channel.createInvite({ maxAge: 0, maxUses: 1, unique: true });
-            inviteLinks.push({ guild: guild.name, invite: invite.url });
-            console.log(`Created invite for ${guild.name}: ${invite.url}`);
-        } catch (error) {
-            console.error(`Could not create invite for ${guild.name}:`, error);
+    try {
+        // Fetch the guild by ID
+        const guild = await client.guilds.fetch(guildId);
+        if (!guild) {
+            console.log(`Guild with ID ${guildId} not found.`);
+            return;
         }
-    }
 
-    console.log('All invite links:', inviteLinks);
+        // Fetch the member (user) by ID
+        const member = await guild.members.fetch(userId);
+        if (!member) {
+            console.log(`User with ID ${userId} not found in guild.`);
+            return;
+        }
+
+        // Fetch the role by ID
+        const role = guild.roles.cache.get(roleId);
+        if (!role) {
+            console.log(`Role with ID ${roleId} not found.`);
+            return;
+        }
+
+        // Add the role to the member
+        await member.roles.add(role);
+        console.log(`Role ${role.name} (${role.id}) added to user ${member.user.tag} (${member.id})`);
+
+    } catch (error) {
+        console.error(`Error adding role: ${error.message}`);
+    } finally {
+        // Log out the bot when done
+        client.destroy();
+    }
 });
+
+
 
 client.login(process.env.DISCORD_TOKEN);
