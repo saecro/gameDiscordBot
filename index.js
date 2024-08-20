@@ -5,7 +5,6 @@ const passport = require('passport');
 const { MongoClient } = require('mongodb');
 const MongoStore = require('connect-mongo');
 const { exec } = require('child_process')
-const readline = require('readline');
 const Discord = require('discord.js');
 require('dotenv').config();
 const http = require('http');
@@ -826,6 +825,53 @@ client.once('ready', async () => {
     await Promise.all(guildPromises);
 
     console.log('All users cached and processed');
+
+    //     const ageEmbed = new EmbedBuilder()
+    //         .setColor('#0099ff')
+    //         .setTitle('Select Your Age Range')
+    //         .setDescription(`
+    //     🔵 - 13-17
+    //     🟢 - 18-24
+    //     🔴 - 24+
+    // `);
+
+    //     // Creating the gender roles embed
+    //     const genderEmbed = new EmbedBuilder()
+    //         .setColor('#ff66cc')
+    //         .setTitle('Select Your Gender')
+    //         .setDescription(`
+    //     <@&> - Dick Dragger
+    //     <@&> - Pussy Pilot
+    //     <@&> - twink
+    // `);
+
+    //     // Creating the ping roles embed
+    //     const pingEmbed = new EmbedBuilder()
+    //         .setColor('#00ff00')
+    //         .setTitle('Select Your Ping Preferences')
+    //         .setDescription(`
+    //     📢 - Ping 1
+    //     🔔 - Ping 2
+    //     🎉 - Ping 3
+    //     ⚠️ - Ping 4
+    //     📬 - Ping 5
+    // `);
+
+    //     // Sending the embeds
+    //     const ageMessage = await channel.send({ embeds: [ageEmbed] });
+    //     const genderMessage = await channel.send({ embeds: [genderEmbed] });
+    //     const pingMessage = await channel.send({ embeds: [pingEmbed] });
+
+    //     // Adding reactions to the embeds
+    //     for (const emoji of Object.keys(emojiMappings.ageRoles)) {
+    //         await ageMessage.react(emoji);
+    //     }
+    //     for (const emoji of Object.keys(emojiMappings.genderRoles)) {
+    //         await genderMessage.react(emoji);
+    //     }
+    //     for (const emoji of Object.keys(emojiMappings.pingRoles)) {
+    //         await pingMessage.react(emoji);
+    //     }
 });
 
 client.on('guildCreate', async (guild) => {
@@ -840,21 +886,6 @@ client.on('guildCreate', async (guild) => {
     await fetchBotGuilds();
 });
 
-function getRandomSpiderGif(directory) {
-    return new Promise((resolve, reject) => {
-        fs.readdir(directory, (err, files) => {
-            if (err) {
-                return reject(`Error reading directory: ${err.message}`);
-            }
-            const gifFiles = files.filter(file => path.extname(file).toLowerCase() === '.gif');
-            if (gifFiles.length === 0) {
-                return reject('No .gif files found in the folder');
-            }
-            const randomIndex = Math.floor(Math.random() * gifFiles.length);
-            resolve(path.join(directory, gifFiles[randomIndex]));
-        });
-    });
-}
 
 async function updateAura(userId, amount) {
     console.log(`Updating aura for userId: ${userId}, amount: ${amount}`);
@@ -866,39 +897,11 @@ async function updateAura(userId, amount) {
 }
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    console.log(`Guild member update, oldMember: ${oldMember.id}, newMember: ${newMember.id}`);
-    const roleIDs = ['list', 'of', 'role', 'IDs'];
-    const gptRole = newMember.guild.roles.cache.find(role => role.name === 'gpt');
 
-    for (const roleId of roleIDs) {
-        const hadRole = oldMember.roles.cache.has(roleId);
-        const hasRole = newMember.roles.cache.has(roleId);
-
-        if (!hadRole && hasRole) {
-            console.log(`User ${newMember.id} was granted role ${roleId}`);
-        } else if (hadRole && !hasRole) {
-            console.log(`User ${newMember.id} was removed from role ${roleId}`);
-        }
+    if (oldMember.premiumSince === null && newMember.premiumSince !== null) {
+        console.log(`${newMember.user.tag} just boosted the server!`);
     }
 
-    if (gptRole) {
-        if (!oldMember.roles.cache.has(gptRole.id) && newMember.roles.cache.has(gptRole.id)) {
-            const auditLogs = await newMember.guild.fetchAuditLogs({
-                limit: 1,
-                type: Discord.AuditLogEvent.MemberRoleUpdate,
-            });
-            const logEntry = auditLogs.entries.first();
-
-            if (logEntry && logEntry.target.id === newMember.id && logEntry.changes.some(change => change.key === '$add' && change.new.find(role => role.id === gptRole.id))) {
-                const executor = logEntry.executor;
-                if (executor.id !== '1242601206627434708') {
-                    await newMember.roles.remove(gptRole);
-                }
-            }
-        }
-    }
-
-    console.log('working');
     if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
         if (newMember.communicationDisabledUntil) {
             try {
@@ -988,10 +991,14 @@ client.on('messageReactionAdd', async (reaction, user) => {
 });
 
 client.on('messageCreate', async message => {
+    const memberRole = message.guild.roles.cache.get('1275178262162702407');
+    const channelsToSkip = ['1275147497907683358', '1275147512256139265', '1275147534280556678', '1275147534280556678', '1275147816192311418', '1275149745634938910', '1275148277624340491', '1275148296817610772', '1275148326160830474', '1275148340325253130', '1275148405894807554']; // Add the names or IDs of channels to skip here
+
     if (message.author.bot) return;
     const userId = message.author.id;
     const playerGames = await getPlayerGames();
     console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
+    const everyoneRole = message.guild.roles.everyone;
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
     const guildId = message.guild.id;
@@ -1012,24 +1019,8 @@ client.on('messageCreate', async message => {
         message.delete()
     }
 
-    if (userId === '792619788810977280') {
-        const randomChance = Math.random();
-        console.log(randomChance);
-        if (randomChance <= 0.10) {
-            try {
-                const gifPath = await getRandomSpiderGif('./spiderGifs');
-                const gif = new Discord.AttachmentBuilder(gifPath, { name: 'spider.gif' });
-                await message.reply({ files: [gif] });
-            } catch (error) {
-                console.error('Error selecting random gif:', error);
-            }
-        } else {
-            console.log('No GIF selected this time');
-        }
-    }
-
     for (const roleId of roleIDs) {
-        if (message.member.roles.cache.has(roleId) || message.author.id === uno) {
+        if (message.member.roles.cache.has(roleId) || userId === uno && userId !== '1157727174724427856') {
             try {
                 await message.react('💀')
             } catch (e) {
@@ -1762,7 +1753,6 @@ client.on('messageCreate', async message => {
         } else if (command === '!rape') {
             try {
                 let mentionedUser = message.mentions.users.first();
-                let member = message.guild.members.cache.get(message.author.id);
                 let desc = `<@${mentionedUser.id}> has been raped!`;
                 if (!mentionedUser) {
                     return await message.channel.send("Please mention a valid user.");
@@ -1770,27 +1760,6 @@ client.on('messageCreate', async message => {
 
                 if (mentionedUser.id === '1242601206627434708') {
                     return await message.channel.send("you can't rape the bot nigga.")
-                }
-                const hasRequiredRole = member.roles.cache.some(role =>
-                    ['1210746667427561563', '1138038219775160441'].includes(role.id)
-                );
-
-
-                const checkUser = message.guild.members.cache.get(mentionedUser.id);
-                if (!checkUser) {
-                    return await message.channel.send("The mentioned user is not in the guild.");
-                }
-
-                const userHasRole = checkUser.roles.cache.some(role =>
-                    ['1210746667427561563', '1138038219775160441'].includes(role.id)
-                );
-
-                if (!userHasRole) {
-                    desc = ('Trust me, you do not want to rape a greenie, them niggas got STDs');
-                }
-
-                if (!hasRequiredRole) {
-                    return await message.channel.send("Your greenie ass can't rape anyone");
                 }
 
                 if (mentionedUser) {
@@ -2251,8 +2220,66 @@ client.on('messageCreate', async message => {
                     }, expiresAt - Date.now());
                 }
             }
-        }
+        } else if (command === '!ban') {
 
+            if (!message.member.permissions.has('BAN_MEMBERS')) {
+                return message.reply('You do not have permissions to ban members.');
+            }
+
+            // Extract the user to ban from the message
+            const args = message.content.split(' ');
+            const userToBan = message.mentions.members.first() || message.guild.members.cache.get(args[1]);
+
+            if (!userToBan) {
+                return message.reply('Please mention a valid user to ban.');
+            }
+
+            if (!userToBan.bannable) {
+                return message.reply(`I cannot ban this user. They might have a higher role or I don't have sufficient permissions.`);
+            }
+
+            // Optional reason for the ban
+            const reason = args.slice(2).join(' ') || 'No reason provided';
+
+            try {
+                await userToBan.ban({ reason });
+                message.channel.send(`${userToBan.user.tag} has been banned. get fucked bitch ass nigga`);
+            } catch (error) {
+                console.error(error);
+                message.channel.send('An error occurred while trying to ban this user.');
+            }
+
+
+        } else if (message.content === '!lockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+            if (!memberRole) {
+                return message.channel.send('No role found in the server.');
+            }
+
+            message.guild.channels.cache.forEach(async (channel) => {
+                if (channel.isTextBased() && !channelsToSkip.includes(channel.id)) {
+                    console.log('overwriting')
+                    await channel.permissionOverwrites.edit(everyoneRole, {
+                        SendMessages: false
+                    });
+                }
+            });
+
+            message.channel.send('🔒 The server is now in lockdown. All members have been locked from typing.');
+        } else if (message.content === '!removelockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+            if (!memberRole) {
+                return message.channel.send('No "Member" role found in the server.');
+            }
+
+            message.guild.channels.cache.forEach(async (channel) => {
+                if (channel.isTextBased() && !channelsToSkip.includes(channel.id)) {
+                    await channel.permissionOverwrites.edit(everyoneRole, {
+                        SendMessages: null // Resets to the default state
+                    });
+                }
+            });
+
+            message.channel.send('🔓 The lockdown has been lifted. Members can now type again.');
+        }
     }
 });
 
