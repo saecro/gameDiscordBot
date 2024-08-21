@@ -2334,14 +2334,27 @@ client.on('messageCreate', async message => {
 
             switch (subcommand) {
                 case 'icon':
-                    const icon = message.attachments.first() || args[1];
-                    if (!icon) return message.reply('Please provide an emoji or attachment.');
-
-                    await boosterRole.setIcon(icon)
-                        .then(() => message.reply('Role icon updated!'))
-                        .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                    const iconArg = args[1];
+                    const attachment = message.attachments.first();
+                
+                    if (attachment) {
+                        // If the user provided an attachment, use it as the icon
+                        await boosterRole.setIcon(attachment.url)
+                            .then(() => message.reply('Role icon updated using the attachment!'))
+                            .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                    } else if (iconArg && iconArg.startsWith('<:') && iconArg.endsWith('>')) {
+                        // If the user provided a custom emoji, extract the emoji ID
+                        const emojiId = iconArg.split(':')[2].replace('>', '');
+                        const emojiUrl = `https://cdn.discordapp.com/emojis/${emojiId}.png`;
+                
+                        await boosterRole.setIcon(emojiUrl)
+                            .then(() => message.reply('Role icon updated using the custom emoji!'))
+                            .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                    } else {
+                        message.reply('Please provide either an attachment or a valid custom emoji.');
+                    }
                     break;
-
+                
                 case 'rename':
                     const newName = args.slice(1).join(' ');
                     if (!newName) return message.reply('Please provide a new name.');
