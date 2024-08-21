@@ -2335,7 +2335,7 @@ client.on('messageCreate', async message => {
                     const hexCode = args[0];
                     const roleName = args.slice(1).join(' ');
 
-                    if (!/^#[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
+                    if (!/^#?[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
 
                     await boosterRole.edit({ color: hexCode, name: roleName })
                         .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName}.`))
