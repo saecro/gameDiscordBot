@@ -2293,7 +2293,7 @@ client.on('messageCreate', async message => {
             });
 
             message.channel.send('🔓 The lockdown has been lifted. Members can now type again.');
-        } else if (message.content.startsWith('!boosterrole')) {
+        } else if (message.content.startsWith('!boosterrole') || message.content.startsWith('!br')) {
             const args = message.content.split(' ').slice(1);
 
             if (!message.member.premiumSince) {
