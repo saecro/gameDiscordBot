@@ -92,6 +92,7 @@ async function getAura(userId) {
 const database = mongoClient.db('discordGameBot');
 const blockedCommandsCollection = database.collection('blockedCommands');
 const toggledCommandsCollection = database.collection('toggledCommands');
+const boosterRolesCollection = database.collection('boosterRoles');
 const validGptRoleIds = database.collection('validGptRoleIds');
 const autoDeleteCollection = database.collection('autoDelete');
 const blacklistCollection = database.collection('blacklist');
@@ -2295,14 +2296,42 @@ client.on('messageCreate', async message => {
         } else if (message.content.startsWith('!boosterrole')) {
             const args = message.content.split(' ').slice(1);
 
-            // Ensure the user is a server booster
-            const isBooster = message.member.premiumSince
-
-            if (!isBooster) {
+            if (!message.member.premiumSince) {
                 return message.reply('This command is only for server boosters.');
             }
 
             const subcommand = args[0];
+            let boosterRole = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
+
+            if (!boosterRole) {
+                // Create the new role if not found in the database
+                boosterRole = await message.guild.roles.create({
+                    name: `${message.member.displayName}'s Booster Role`,
+                    color: '#ffffff',
+                    permissions: [],
+                    mentionable: true,
+                    reason: `Custom role for ${message.member.displayName} as a server booster`
+                });
+
+                await message.member.roles.add(boosterRole);
+
+                // Save the role to the database
+                await boosterRolesCollection.insertOne({
+                    userId: message.member.id,
+                    guildId: message.guild.id,
+                    roleId: boosterRole.id
+                });
+
+                message.reply(`Created a custom booster role for you: ${boosterRole.name}`);
+            } else {
+                // Fetch the existing role if found in the database
+                boosterRole = message.guild.roles.cache.get(boosterRole.roleId);
+
+                if (!boosterRole) {
+                    // Handle the case where the role might have been deleted externally
+                    return message.reply('Your custom booster role seems to have been deleted. Please contact the server admin.');
+                }
+            }
 
             switch (subcommand) {
                 case 'icon':
@@ -2324,21 +2353,22 @@ client.on('messageCreate', async message => {
                     break;
 
                 case 'remove':
-                    await message.member.roles.remove(boosterRole)
-                        .then(() => message.reply('Booster role removed.'))
+                    await boosterRole.delete()
+                        .then(async () => {
+                            await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
+                            message.reply('Booster role removed.');
+                        })
                         .catch(err => message.reply(`Failed to remove role: ${err.message}`));
                     break;
 
-                case 'color':
                 default:
-                    if (args.length < 2) return message.reply('Please provide a hex code and a name.');
                     const hexCode = args[0];
                     const roleName = args.slice(1).join(' ');
 
-                    if (!/^#?[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
+                    if (!/^#[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
 
-                    await boosterRole.edit({ color: hexCode, name: roleName })
-                        .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName}.`))
+                    await boosterRole.edit({ color: hexCode, name: roleName || boosterRole.name })
+                        .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName || boosterRole.name}.`))
                         .catch(err => message.reply(`Failed to update role: ${err.message}`));
                     break;
             }
@@ -2350,12 +2380,15 @@ client.on('messageCreate', async message => {
 
             if (!baseRole) return message.reply('Please mention a role.');
 
-            const boosterRoles = message.guild.roles.cache.filter(role => role.name.startsWith('Booster'));
+            const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
 
-            boosterRoles.forEach(async (role) => {
-                await role.setPosition(baseRole.position + 1)
-                    .then(() => message.reply(`Moved role ${role.name} above ${baseRole.name}.`))
-                    .catch(err => message.reply(`Failed to move role: ${err.message}`));
+            boosterRoles.forEach(async (boosterRole) => {
+                const role = message.guild.roles.cache.get(boosterRole.roleId);
+                if (role) {
+                    await role.setPosition(baseRole.position + 1)
+                        .then(() => message.reply(`Moved role ${role.name} above ${baseRole.name}.`))
+                        .catch(err => message.reply(`Failed to move role: ${err.message}`));
+                }
             });
         }
     }
