@@ -2296,18 +2296,13 @@ client.on('messageCreate', async message => {
             const args = message.content.split(' ').slice(1);
 
             // Ensure the user is a server booster
-            const isBooster = message.member.roles.cache.some(role => role.premiumSubscriberRole);
+            const isBooster = message.member.premiumSince
 
             if (!isBooster) {
                 return message.reply('This command is only for server boosters.');
             }
 
             const subcommand = args[0];
-            const boosterRole = message.member.roles.cache.find(role => role.premiumSubscriberRole);
-
-            if (!boosterRole) {
-                return message.reply('You don’t have a booster role.');
-            }
 
             switch (subcommand) {
                 case 'icon':
