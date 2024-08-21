@@ -2309,7 +2309,7 @@ client.on('messageCreate', async message => {
                     name: `${message.member.displayName}'s Booster Role`,
                     color: '#ffffff',
                     permissions: [],
-                    mentionable: true,
+                    mentionable: false,
                     reason: `Custom role for ${message.member.displayName} as a server booster`
                 });
 
@@ -2322,7 +2322,6 @@ client.on('messageCreate', async message => {
                     roleId: boosterRole.id
                 });
 
-                message.reply(`Created a custom booster role for you: ${boosterRole.name}`);
             } else {
                 // Fetch the existing role if found in the database
                 boosterRole = message.guild.roles.cache.get(boosterRole.roleId);
@@ -2365,7 +2364,7 @@ client.on('messageCreate', async message => {
                     const hexCode = args[0];
                     const roleName = args.slice(1).join(' ');
 
-                    if (!/^#[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
+                    if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) return message.reply('Invalid hex code.');
 
                     await boosterRole.edit({ color: hexCode, name: roleName || boosterRole.name })
                         .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName || boosterRole.name}.`))
