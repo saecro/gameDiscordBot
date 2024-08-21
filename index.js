@@ -92,7 +92,6 @@ async function getAura(userId) {
 const database = mongoClient.db('discordGameBot');
 const blockedCommandsCollection = database.collection('blockedCommands');
 const toggledCommandsCollection = database.collection('toggledCommands');
-const limitGamesCollection = database.collection('limitGames');
 const validGptRoleIds = database.collection('validGptRoleIds');
 const autoDeleteCollection = database.collection('autoDelete');
 const blacklistCollection = database.collection('blacklist');
@@ -187,7 +186,23 @@ const stateTimezones = {
     'wyoming': 'America/Denver'
 };
 
-const promotionChoices = new Map();
+const emojiMappings = {
+    ageRoles: {
+        '🔵': '13-17',
+        '🟢': '18-24',
+        '🔴': '24+',
+    },
+    genderRoles: {
+        '<:male:1275738313424113674>': 'Willy Wielder',
+        '<:female:1275738394642747485>': 'Pussy Possessor',
+        '<:nerd:1275739969490522165>': 'Twink',
+    },
+    pingRoles: {
+        '📢': 'Announcements',
+        '🔔': 'Fight Club',
+        '🎉': 'Giveaways',
+    },
+};
 
 let roleIDs = [];
 
@@ -826,7 +841,7 @@ client.once('ready', async () => {
 
     console.log('All users cached and processed');
 
-    //     const ageEmbed = new EmbedBuilder()
+    //     const ageEmbed = new Discord.EmbedBuilder()
     //         .setColor('#0099ff')
     //         .setTitle('Select Your Age Range')
     //         .setDescription(`
@@ -836,25 +851,23 @@ client.once('ready', async () => {
     // `);
 
     //     // Creating the gender roles embed
-    //     const genderEmbed = new EmbedBuilder()
+    //     const genderEmbed = new Discord.EmbedBuilder()
     //         .setColor('#ff66cc')
     //         .setTitle('Select Your Gender')
     //         .setDescription(`
-    //     <@&> - Dick Dragger
-    //     <@&> - Pussy Pilot
-    //     <@&> - twink
+    //     <:male:1275738313424113674> - Willy Wielder
+    //     <:female:1275738394642747485> - Pussy Possessor
+    //     <:nerd:1275739969490522165> - twink
     // `);
 
     //     // Creating the ping roles embed
-    //     const pingEmbed = new EmbedBuilder()
+    //     const pingEmbed = new Discord.EmbedBuilder()
     //         .setColor('#00ff00')
     //         .setTitle('Select Your Ping Preferences')
     //         .setDescription(`
-    //     📢 - Ping 1
-    //     🔔 - Ping 2
-    //     🎉 - Ping 3
-    //     ⚠️ - Ping 4
-    //     📬 - Ping 5
+    //     📢 - Announcements
+    //     🔔 - Fight Club
+    //     🎉 - Giveaways
     // `);
 
     //     // Sending the embeds
@@ -2250,7 +2263,7 @@ client.on('messageCreate', async message => {
             }
 
 
-        } else if (message.content === '!lockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+        } else if (command === '!lockdown' && message.member.permissions.has('ADMINISTRATOR')) {
             if (!memberRole) {
                 return message.channel.send('No role found in the server.');
             }
@@ -2265,7 +2278,7 @@ client.on('messageCreate', async message => {
             });
 
             message.channel.send('🔒 The server is now in lockdown. All members have been locked from typing.');
-        } else if (message.content === '!removelockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+        } else if (command === '!removelockdown' && message.member.permissions.has('ADMINISTRATOR')) {
             if (!memberRole) {
                 return message.channel.send('No "Member" role found in the server.');
             }
@@ -2279,6 +2292,76 @@ client.on('messageCreate', async message => {
             });
 
             message.channel.send('🔓 The lockdown has been lifted. Members can now type again.');
+        } else if (message.content.startsWith('!boosterrole')) {
+            const args = message.content.split(' ').slice(1);
+
+            // Ensure the user is a server booster
+            const isBooster = message.member.roles.cache.some(role => role.premiumSubscriberRole);
+
+            if (!isBooster) {
+                return message.reply('This command is only for server boosters.');
+            }
+
+            const subcommand = args[0];
+            const boosterRole = message.member.roles.cache.find(role => role.premiumSubscriberRole);
+
+            if (!boosterRole) {
+                return message.reply('You don’t have a booster role.');
+            }
+
+            switch (subcommand) {
+                case 'icon':
+                    const icon = message.attachments.first() || args[1];
+                    if (!icon) return message.reply('Please provide an emoji or attachment.');
+
+                    await boosterRole.setIcon(icon)
+                        .then(() => message.reply('Role icon updated!'))
+                        .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                    break;
+
+                case 'rename':
+                    const newName = args.slice(1).join(' ');
+                    if (!newName) return message.reply('Please provide a new name.');
+
+                    await boosterRole.setName(newName)
+                        .then(() => message.reply('Role name updated!'))
+                        .catch(err => message.reply(`Failed to update role name: ${err.message}`));
+                    break;
+
+                case 'remove':
+                    await message.member.roles.remove(boosterRole)
+                        .then(() => message.reply('Booster role removed.'))
+                        .catch(err => message.reply(`Failed to remove role: ${err.message}`));
+                    break;
+
+                case 'color':
+                default:
+                    if (args.length < 2) return message.reply('Please provide a hex code and a name.');
+                    const hexCode = args[0];
+                    const roleName = args.slice(1).join(' ');
+
+                    if (!/^#[0-9A-F]{6}$/i.test(hexCode)) return message.reply('Invalid hex code.');
+
+                    await boosterRole.edit({ color: hexCode, name: roleName })
+                        .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName}.`))
+                        .catch(err => message.reply(`Failed to update role: ${err.message}`));
+                    break;
+            }
+        }
+
+        if (message.content.startsWith('!baserole')) {
+            const args = message.content.split(' ').slice(1);
+            const baseRole = message.mentions.roles.first();
+
+            if (!baseRole) return message.reply('Please mention a role.');
+
+            const boosterRoles = message.guild.roles.cache.filter(role => role.name.startsWith('Booster'));
+
+            boosterRoles.forEach(async (role) => {
+                await role.setPosition(baseRole.position + 1)
+                    .then(() => message.reply(`Moved role ${role.name} above ${baseRole.name}.`))
+                    .catch(err => message.reply(`Failed to move role: ${err.message}`));
+            });
         }
     }
 });
