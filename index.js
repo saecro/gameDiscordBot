@@ -11,7 +11,7 @@ const http = require('http');
 const axios = require('axios');
 const OpenAI = require('openai');
 const moment = require('moment-timezone');
-const helpgame = require('./helpgame.js');
+const helpHandler = require('./helpHandler.js');
 const path = require('path');
 const fs = require('fs');
 const socketIo = require('socket.io');
@@ -69,27 +69,16 @@ server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
-function sendReminderMessage() {
-    const channelId = '1270888994619785258'; // Replace with your specific channel ID
-    const reminderMessage = "If there is anything you want added to the discord bot, please use the command as such: `!note add checkers game`. anyone that abuses this will receive a blacklist from the bot until otherwise.";
-
-    const channel = client.channels.cache.get(channelId);
-    if (channel && channel.isTextBased()) {
-        channel.send(reminderMessage).catch(console.error);
-    } else {
-        console.error('Failed to send reminder message. Channel not found or is not a text channel.');
-    }
-}
-
-async function getAura(userId) {
-    console.log(`Fetching aura for userId: ${userId}`);
-    const user = await auraCollection.findOne({ discordID: userId });
+async function getAura(discordID, guildId) {
+    console.log(`Fetching aura for userId: ${discordID}`);
+    const user = await auraCollection.findOne({ discordID, guildId });
     console.log(`User aura: ${user ? user.aura : 0}`);
     return user ? user.aura : 0;
 }
 
 // Initialize Discord Client
 const database = mongoClient.db('discordGameBot');
+const commandPermissionsCollection = database.collection('CommandPermissions');
 const blockedCommandsCollection = database.collection('blockedCommands');
 const toggledCommandsCollection = database.collection('toggledCommands');
 const boosterRolesCollection = database.collection('boosterRoles');
@@ -103,7 +92,6 @@ const roleCollection = database.collection('RoleIDs');
 const aiMessages = database.collection('AIMessages');
 const gamesCollection = database.collection('Games');
 const timeoutLogs = database.collection('Timeouts');
-const logChannel = database.collection('AIChannels');
 const botServers = database.collection('botGuilds');
 const auraCollection = database.collection('aura');
 const notesCollection = database.collection('notes');
@@ -207,13 +195,23 @@ const emojiMappings = {
 
 let roleIDs = [];
 
+const validPermissions = [
+    'administrator',
+    'manage_messages',
+    'moderate_members',
+    'manage_nicknames',
+    'manage_roles',
+    'ban_members',
+    'kick_members'
+];
+
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
-    process.exit(1); // Exit the process to trigger PM2 restart
+    process.exit(1);
 });
 
 async function getPlayerGames() {
@@ -467,7 +465,7 @@ async function sendInChunks(channel, message) {
 }
 
 function isAdmin(member) {
-    const isAdmin = member.id === saecro || member.permissions.has(Discord.PermissionsBitField.Flags.Administrator);
+    const isAdmin = member.id === saecro || checkRolePermission(message, 'administrator');
     console.log(`Checking if member is admin: ${member.id}, isAdmin: ${isAdmin}`);
     return isAdmin;
 }
@@ -595,6 +593,46 @@ The final prompt should be concise, impactful, and creatively aligned with user 
 
     console.log(`Assistant response: ${assistantMessage}`);
     return assistantMessage;
+}
+
+const permissionMapping = {
+    'administrator': Discord.PermissionsBitField.Flags.Administrator,
+    'manage_messages': Discord.PermissionsBitField.Flags.ManageMessages,
+    'moderate_members': Discord.PermissionsBitField.Flags.ModerateMembers,
+    'manage_nicknames': Discord.PermissionsBitField.Flags.ManageNicknames,
+    'manage_roles': Discord.PermissionsBitField.Flags.ManageRoles,
+    'ban_members': Discord.PermissionsBitField.Flags.BanMembers,
+    'kick_members': Discord.PermissionsBitField.Flags.KickMembers,
+    'mute_members': Discord.PermissionsBitField.Flags.MuteMembers,
+    'deafen_members': Discord.PermissionsBitField.Flags.DeafenMembers,
+    'move_members': Discord.PermissionsBitField.Flags.MoveMembers,
+};
+
+async function checkRolePermission(message, command) {
+    const userRoles = message.member.roles.cache.map(role => role.id);
+    const commandPermissions = await commandPermissionsCollection.findOne({
+        guildId: message.guild.id,
+        $or: [
+            { command: command },
+            { command: "administrator" }
+        ]
+    });
+
+    // Check if the user has the permission directly
+    if (permissionMapping[command]) {
+        if (message.member.permissions.has(permissionMapping[command]) || message.member.permissions.has(permissionMapping['administrator'])) {
+            return true;
+        }
+    }
+
+    // Check for custom role-based permissions
+    console.log(commandPermissions)
+    if (commandPermissions) {
+        console.log(userRoles, commandPermissions.allowedRoles)
+        return userRoles.some(role => commandPermissions.allowedRoles.includes(role));
+    }
+
+    return false;
 }
 
 async function setTimezone(message, location, userId) {
@@ -841,51 +879,6 @@ client.once('ready', async () => {
     await Promise.all(guildPromises);
 
     console.log('All users cached and processed');
-
-    //     const ageEmbed = new Discord.EmbedBuilder()
-    //         .setColor('#0099ff')
-    //         .setTitle('Select Your Age Range')
-    //         .setDescription(`
-    //     🔵 - 13-17
-    //     🟢 - 18-24
-    //     🔴 - 24+
-    // `);
-
-    //     // Creating the gender roles embed
-    //     const genderEmbed = new Discord.EmbedBuilder()
-    //         .setColor('#ff66cc')
-    //         .setTitle('Select Your Gender')
-    //         .setDescription(`
-    //     <:male:1275738313424113674> - Willy Wielder
-    //     <:female:1275738394642747485> - Pussy Possessor
-    //     <:nerd:1275739969490522165> - twink
-    // `);
-
-    //     // Creating the ping roles embed
-    //     const pingEmbed = new Discord.EmbedBuilder()
-    //         .setColor('#00ff00')
-    //         .setTitle('Select Your Ping Preferences')
-    //         .setDescription(`
-    //     📢 - Announcements
-    //     🔔 - Fight Club
-    //     🎉 - Giveaways
-    // `);
-
-    //     // Sending the embeds
-    //     const ageMessage = await channel.send({ embeds: [ageEmbed] });
-    //     const genderMessage = await channel.send({ embeds: [genderEmbed] });
-    //     const pingMessage = await channel.send({ embeds: [pingEmbed] });
-
-    //     // Adding reactions to the embeds
-    //     for (const emoji of Object.keys(emojiMappings.ageRoles)) {
-    //         await ageMessage.react(emoji);
-    //     }
-    //     for (const emoji of Object.keys(emojiMappings.genderRoles)) {
-    //         await genderMessage.react(emoji);
-    //     }
-    //     for (const emoji of Object.keys(emojiMappings.pingRoles)) {
-    //         await pingMessage.react(emoji);
-    //     }
 });
 
 client.on('guildCreate', async (guild) => {
@@ -1007,11 +1000,10 @@ client.on('messageReactionAdd', async (reaction, user) => {
 client.on('messageCreate', async message => {
     const memberRole = message.guild.roles.cache.get('1275178262162702407');
     const channelsToSkip = ['1275147497907683358', '1275147512256139265', '1275147534280556678', '1275147534280556678', '1275147816192311418', '1275149745634938910', '1275148277624340491', '1275148296817610772', '1275148326160830474', '1275148340325253130', '1275148405894807554']; // Add the names or IDs of channels to skip here
-
+    console.log(message.content, message.guild.name)
     if (message.author.bot) return;
     const userId = message.author.id;
     const playerGames = await getPlayerGames();
-    console.log(`Player games map before message handling: ${JSON.stringify([...playerGames])}`);
     const everyoneRole = message.guild.roles.everyone;
     const args = message.content.trim().split(/ +/g);
     const command = args[0].toLowerCase();
@@ -1162,18 +1154,18 @@ client.on('messageCreate', async message => {
             await message.channel.send('A game is already in progress. Please wait for it to finish before starting a new one.');
             return;
         } else if (command === '!help') {
-            const commands = await helpgame.readCommandsFile();
+            const commands = await helpHandler.readCommandsFile();
             if (!commands) {
                 return await message.channel.send('Failed to load commands.');
             }
 
             const helpCategory = args[1] ? args[1].toLowerCase() : null;
             if (helpCategory === 'admin') {
-                await helpgame.handleHelpCommand(message, commands.adminCommands);
+                await helpHandler.handleHelpCommand(message, commands.adminCommands);
             } else if (helpCategory === 'games') {
-                await helpgame.handleHelpCommand(message, commands.gameCommands);
+                await helpHandler.handleHelpCommand(message, commands.gameCommands);
             } else if (helpCategory === 'general') {
-                await helpgame.handleHelpCommand(message, commands.generalCommands);
+                await helpHandler.handleHelpCommand(message, commands.generalCommands);
             } else {
                 const sections = [
                     { name: 'Admin Commands', commands: commands.adminCommands },
@@ -1811,7 +1803,7 @@ client.on('messageCreate', async message => {
             }
         } else if (command === '!aura') {
             console.log('getting aura');
-            const aura = await getAura(message.author.id);
+            const aura = await getAura(message.author.id, message.guild.id);
             const embed = new Discord.EmbedBuilder()
                 .setColor('#00ff00')
                 .setTitle(`${message.author.username}'s Aura`)
@@ -2235,36 +2227,37 @@ client.on('messageCreate', async message => {
                 }
             }
         } else if (command === '!ban') {
+            if (await checkRolePermission(message, 'ban_members')) {
+                const userToBan = message.mentions.members.first();
 
-            if (!message.member.permissions.has('BAN_MEMBERS')) {
-                return message.reply('You do not have permissions to ban members.');
+                if (!userToBan) {
+                    return message.channel.send('Please mention a valid user to ban.');
+                }
+
+                const reason = message.content.split(' ').slice(2).join(' ') || 'No reason provided';
+
+                // Prefix for the ban reason
+                const banPrefix = `Banned by ${message.author.displayName} - `;
+                const maxReasonLength = 500 - banPrefix.length;
+
+                // Trim the reason if it exceeds the allowed length
+                const trimmedReason = reason.length > maxReasonLength ? reason.slice(0, maxReasonLength) : reason;
+
+                try {
+                    await userToBan.ban({
+                        reason: `${banPrefix}${trimmedReason}`
+                    });
+                    message.channel.send(`${userToBan.user.tag} has been banned.`);
+                } catch (err) {
+                    console.error('Error banning user:', err); // Optional: log the error for debugging
+                    message.channel.send(`Failed to ban ${userToBan.user.tag}.`);
+                }
+            } else {
+                message.channel.send('You do not have permission to use this command.');
             }
+        } else if (command === '!unban') {
 
-            // Extract the user to ban from the message
-            const args = message.content.split(' ');
-            const userToBan = message.mentions.members.first() || message.guild.members.cache.get(args[1]);
-
-            if (!userToBan) {
-                return message.reply('Please mention a valid user to ban.');
-            }
-
-            if (!userToBan.bannable) {
-                return message.reply(`I cannot ban this user. They might have a higher role or I don't have sufficient permissions.`);
-            }
-
-            // Optional reason for the ban
-            const reason = args.slice(2).join(' ') || 'No reason provided';
-
-            try {
-                await userToBan.ban({ reason });
-                message.channel.send(`${userToBan.user.tag} has been banned. get fucked bitch ass nigga`);
-            } catch (error) {
-                console.error(error);
-                message.channel.send('An error occurred while trying to ban this user.');
-            }
-
-
-        } else if (command === '!lockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+        } else if (command === '!lockdown' && checkRolePermission(message, 'administrator')) {
             if (!memberRole) {
                 return message.channel.send('No role found in the server.');
             }
@@ -2279,7 +2272,7 @@ client.on('messageCreate', async message => {
             });
 
             message.channel.send('🔒 The server is now in lockdown. All members have been locked from typing.');
-        } else if (command === '!removelockdown' && message.member.permissions.has('ADMINISTRATOR')) {
+        } else if (command === '!removelockdown' && checkRolePermission(message, 'administrator')) {
             if (!memberRole) {
                 return message.channel.send('No "Member" role found in the server.');
             }
@@ -2294,99 +2287,177 @@ client.on('messageCreate', async message => {
 
             message.channel.send('🔓 The lockdown has been lifted. Members can now type again.');
         } else if (message.content.startsWith('!boosterrole') || message.content.startsWith('!br')) {
-            const args = message.content.split(' ').slice(1);
 
             if (!message.member.premiumSince) {
                 return message.reply('This command is only for server boosters.');
             }
 
-            const subcommand = args[0];
-            let boosterRole = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
+            const subcommand = args[1];
+            if (subcommand === 'list') {
+                const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
 
-            if (!boosterRole) {
-                // Create the new role if not found in the database
-                boosterRole = await message.guild.roles.create({
-                    name: `${message.member.displayName}'s Booster Role`,
-                    color: '#ffffff',
-                    permissions: [],
-                    mentionable: false,
-                    reason: `Custom role for ${message.member.displayName} as a server booster`
+                if (boosterRoles.length === 0) {
+                    return message.reply('No booster roles found in this server.');
+                }
+
+                // Pagination settings
+                const pageSize = 10; // Number of roles per page
+                let currentIndex = 0;
+
+                // Function to create the embed based on the current index
+                function createRoleEmbed(index) {
+                    const slicedRoles = boosterRoles.slice(index, index + pageSize);
+                    const embed = new Discord.EmbedBuilder()
+                        .setTitle('Booster Roles')
+                        .setColor('#5865F2')
+                        .setDescription(slicedRoles.map((role, idx) => `${index + idx + 1}. <@&${role.roleId}>`).join('\n'))
+                        .setFooter({ text: `Page ${Math.floor(index / pageSize) + 1} of ${Math.ceil(boosterRoles.length / pageSize)}` });
+                    return embed;
+                }
+
+                // Create buttons
+                const row = new Discord.ActionRowBuilder()
+                    .addComponents(
+                        new Discord.ButtonBuilder()
+                            .setCustomId('prev')
+                            .setLabel('←')
+                            .setStyle(Discord.ButtonStyle.Primary)
+                            .setDisabled(currentIndex === 0),
+                        new Discord.ButtonBuilder()
+                            .setCustomId('next')
+                            .setLabel('→')
+                            .setStyle(Discord.ButtonStyle.Primary)
+                            .setDisabled(currentIndex + pageSize >= boosterRoles.length)
+                    );
+
+                const roleEmbed = createRoleEmbed(currentIndex);
+                const listMessage = await message.channel.send({ embeds: [roleEmbed], components: [row] });
+
+                const filter = i => i.user.id === message.author.id;
+                const collector = listMessage.createMessageComponentCollector({ filter, time: 60000 });
+
+                collector.on('collect', async i => {
+                    if (i.customId === 'prev' && currentIndex > 0) {
+                        currentIndex -= pageSize;
+                    } else if (i.customId === 'next' && currentIndex + pageSize < boosterRoles.length) {
+                        currentIndex += pageSize;
+                    }
+
+                    await i.update({
+                        embeds: [createRoleEmbed(currentIndex)],
+                        components: [
+                            new Discord.ActionRowBuilder()
+                                .addComponents(
+                                    new Discord.ButtonBuilder()
+                                        .setCustomId('prev')
+                                        .setLabel('←')
+                                        .setStyle(Discord.ButtonStyle.Primary)
+                                        .setDisabled(currentIndex === 0),
+                                    new Discord.ButtonBuilder()
+                                        .setCustomId('next')
+                                        .setLabel('→')
+                                        .setStyle(Discord.ButtonStyle.Primary)
+                                        .setDisabled(currentIndex + pageSize >= boosterRoles.length)
+                                )
+                        ]
+                    });
                 });
 
-                await message.member.roles.add(boosterRole);
-
-                // Save the role to the database
-                await boosterRolesCollection.insertOne({
-                    userId: message.member.id,
-                    guildId: message.guild.id,
-                    roleId: boosterRole.id
+                collector.on('end', () => {
+                    listMessage.edit({ components: [] });
                 });
-
             } else {
-                // Fetch the existing role if found in the database
-                boosterRole = message.guild.roles.cache.get(boosterRole.roleId);
+                let boosterRole = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
 
                 if (!boosterRole) {
-                    // Handle the case where the role might have been deleted externally
-                    return message.reply('Your custom booster role seems to have been deleted. Please contact the server admin.');
+                    // Create the new role if not found in the database
+                    boosterRole = await message.guild.roles.create({
+                        name: `${message.member.displayName}'s Booster Role`,
+                        color: '#ffffff',
+                        permissions: [],
+                        mentionable: false,
+                        reason: `Custom role for ${message.member.displayName} as a server booster`
+                    });
+
+                    await message.member.roles.add(boosterRole);
+
+                    // Save the role to the database
+                    await boosterRolesCollection.insertOne({
+                        userId: message.member.id,
+                        guildId: message.guild.id,
+                        roleId: boosterRole.id
+                    });
+
+                } else {
+                    // Fetch the existing role if found in the database
+                    boosterRole = message.guild.roles.cache.get(boosterRole.roleId);
+
+                    if (!boosterRole) {
+                        // Handle the case where the role might have been deleted externally
+                        return message.reply('Your custom booster role seems to have been deleted. Please contact the server admin.');
+                    }
+                }
+
+                switch (subcommand) {
+                    case 'icon':
+                        const iconArg = args[1];
+                        const attachment = message.attachments.first();
+
+                        if (attachment) {
+                            // If the user provided an attachment, use it as the icon
+                            await boosterRole.setIcon(attachment.url)
+                                .then(() => message.reply('Role icon updated using the attachment!'))
+                                .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                        } else if (iconArg && iconArg.startsWith('<:') && iconArg.endsWith('>')) {
+                            // If the user provided a custom emoji, extract the emoji ID
+                            const emojiId = iconArg.split(':')[2].replace('>', '');
+                            const emojiUrl = `https://cdn.discordapp.com/emojis/${emojiId}.png`;
+
+                            await boosterRole.setIcon(emojiUrl)
+                                .then(() => message.reply('Role icon updated using the custom emoji!'))
+                                .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
+                        } else {
+                            message.reply('Please provide either an attachment or a valid custom emoji.');
+                        }
+                        break;
+
+                    case 'rename':
+                        const newName = args.slice(1).join(' ');
+                        if (!newName) return message.reply('Please provide a new name.');
+
+                        await boosterRole.setName(newName)
+                            .then(() => message.reply('Role name updated!'))
+                            .catch(err => message.reply(`Failed to update role name: ${err.message}`));
+                        break;
+
+                    case 'remove':
+                        await boosterRole.delete()
+                            .then(async () => {
+                                await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
+                                message.reply('Booster role removed.');
+                            })
+                            .catch(err => message.reply(`Failed to remove role: ${err.message}`));
+                        break;
+
+                    default:
+                        const hexCode = args[0];
+                        let roleName = args.slice(1).join(' ');
+
+                        if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) {
+                            return message.reply('Invalid format, please follow this format: `!br #ffffff <rolename>`.');
+                        }
+
+                        if (!roleName) {
+                            roleName = message.member.displayName
+                        }
+
+                        await boosterRole.edit({ color: hexCode, name: roleName })
+                            .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName}`))
+                            .catch(err => message.reply(`Failed to update role: ${err.message}`));
+                        break;
                 }
             }
-
-            switch (subcommand) {
-                case 'icon':
-                    const iconArg = args[1];
-                    const attachment = message.attachments.first();
-                
-                    if (attachment) {
-                        // If the user provided an attachment, use it as the icon
-                        await boosterRole.setIcon(attachment.url)
-                            .then(() => message.reply('Role icon updated using the attachment!'))
-                            .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
-                    } else if (iconArg && iconArg.startsWith('<:') && iconArg.endsWith('>')) {
-                        // If the user provided a custom emoji, extract the emoji ID
-                        const emojiId = iconArg.split(':')[2].replace('>', '');
-                        const emojiUrl = `https://cdn.discordapp.com/emojis/${emojiId}.png`;
-                
-                        await boosterRole.setIcon(emojiUrl)
-                            .then(() => message.reply('Role icon updated using the custom emoji!'))
-                            .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
-                    } else {
-                        message.reply('Please provide either an attachment or a valid custom emoji.');
-                    }
-                    break;
-                
-                case 'rename':
-                    const newName = args.slice(1).join(' ');
-                    if (!newName) return message.reply('Please provide a new name.');
-
-                    await boosterRole.setName(newName)
-                        .then(() => message.reply('Role name updated!'))
-                        .catch(err => message.reply(`Failed to update role name: ${err.message}`));
-                    break;
-
-                case 'remove':
-                    await boosterRole.delete()
-                        .then(async () => {
-                            await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
-                            message.reply('Booster role removed.');
-                        })
-                        .catch(err => message.reply(`Failed to remove role: ${err.message}`));
-                    break;
-
-                default:
-                    const hexCode = args[0];
-                    const roleName = args.slice(1).join(' ');
-
-                    if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) return message.reply('Invalid hex code.');
-
-                    await boosterRole.edit({ color: hexCode, name: roleName || boosterRole.name })
-                        .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName || boosterRole.name}.`))
-                        .catch(err => message.reply(`Failed to update role: ${err.message}`));
-                    break;
-            }
-        }
-
-        if (message.content.startsWith('!baserole')) {
+        } else if (message.content.startsWith('!baserole')) {
             const args = message.content.split(' ').slice(1);
             const baseRole = message.mentions.roles.first();
 
@@ -2402,6 +2473,133 @@ client.on('messageCreate', async message => {
                         .catch(err => message.reply(`Failed to move role: ${err.message}`));
                 }
             });
+        } else if (command === '!lock') {
+            await message.channel.permissionOverwrites.edit(everyoneRole, {
+                SendMessages: false
+            });
+            await message.channel.send(`locked **${message.channel.name}**.`)
+        } else if (command === '!unlock') {
+            await message.channel.permissionOverwrites.edit(everyoneRole, {
+                SendMessages: null
+            });
+            await message.channel.send(`unlocked **${message.channel.name}**.`)
+        } else if (command === '!reset') {
+            const channel = message.channel;
+            const channelName = channel.name;
+            const parentCategory = channel.parent; // Get the category (parent) the channel is in
+            const channelPosition = channel.position;
+            const channelPermissions = channel.permissionOverwrites.cache.map(overwrite => ({
+                id: overwrite.id,
+                allow: overwrite.allow.toArray(),
+                deny: overwrite.deny.toArray()
+            }));
+
+            // Save the channel data before deleting it
+            const channelData = {
+                name: channelName,
+                parent: parentCategory,
+                permissions: channelPermissions,
+                type: channel.type, // Saves the channel type (text, voice, etc.)
+                topic: channel.topic,
+                nsfw: channel.nsfw,
+                rateLimitPerUser: channel.rateLimitPerUser, // Slow mode setting
+            };
+
+            // Delete the channel
+            await channel.delete();
+
+            // Recreate the channel in the same category
+            const newChannel = await message.guild.channels.create({
+                name: channelData.name,
+                type: channelData.type,
+                topic: channelData.topic,
+                nsfw: channelData.nsfw,
+                rateLimitPerUser: channelData.rateLimitPerUser,
+                permissionOverwrites: channelData.permissions,
+                parent: channelData.parent, // Set the category (parent)
+            });
+
+            // Adjust the position of the channel
+            await newChannel.setPosition(channelPosition);
+
+            // Send the reset message in the new channel
+            newChannel.send(`reset **${channelName}**`);
+        } else if (command === '!purge') {
+            if (!checkRolePermission(message, 'manage_messages')) {
+                return message.reply('You do not have permission to use this command.');
+            }
+
+            // Split the message content into arguments
+            const args = message.content.split(' ');
+
+            // Make sure the command has a valid number argument
+            const amount = parseInt(args[1]);
+
+            if (isNaN(amount) || amount < 1 || amount > 100) {
+                return message.reply('Please provide a number between 1 and 100.');
+            }
+
+            try {
+                // Bulk delete the messages
+                await message.channel.bulkDelete(amount + 1, true); // +1 to include the command message itself
+                message.channel.send(`Successfully deleted ${amount} messages.`).then((msg) => {
+                    setTimeout(() => msg.delete(), 5000); // Deletes the confirmation message after 5 seconds
+                });
+            } catch (error) {
+                console.error(error);
+                message.channel.send('There was an error trying to purge messages in this channel!');
+            }
+        } else if (command === '!fakepermission' || command === '!fp') {
+            if (userId === message.guild.ownerId) {
+
+                const action = args[2]; // 'grant' or 'revoke'
+                const permission = args[3]; // Permission being granted or revoked
+                const roleIdentifier = args[1]; // Role mention, ID, or name
+
+
+                console.log(action, permission, args)
+                if (!['grant', 'revoke'].includes(action) || !validPermissions.includes(permission)) {
+                    return message.channel.send(`Usage: \`!fakepermission <@role/id/name> grant/revoke <${validPermissions.join(' | ')}>\``);
+                }
+
+                // Resolve role based on mention, ID, or name
+                let role = message.mentions.roles.first() ||
+                    message.guild.roles.cache.get(roleIdentifier) ||
+                    message.guild.roles.cache.find(r => r.name.toLowerCase() === roleIdentifier.toLowerCase());
+
+                if (!role) {
+                    return message.channel.send('Role not found. Please provide a valid role mention, ID, or name.');
+                }
+
+                const guildId = message.guild.id;
+                const roleId = role.id;
+                const commandPermissionsCollection = database.collection('CommandPermissions');
+
+                // Add or remove the role's permission for the specified command
+                if (action === 'grant') {
+                    await commandPermissionsCollection.updateOne(
+                        { guildId, command: permission },
+                        { $addToSet: { allowedRoles: roleId } },
+                        { upsert: true }
+                    );
+                    message.channel.send(`Granted ${role.name} the \`${permission}\` permission.`);
+                } else if (action === 'revoke') {
+                    await commandPermissionsCollection.updateOne(
+                        { guildId, command: permission },
+                        { $pull: { allowedRoles: roleId } }
+                    );
+                    message.channel.send(`Revoked the \`${permission}\` permission from ${role.name}.`);
+                }
+            }
+        } else if (command === '!fpconfig') {
+            const embed = new Discord.EmbedBuilder()
+                .setColor(0x0099ff)
+                .setTitle('Valid Permissions')
+                .setDescription(validPermissions.map(permission => `- \`${permission}\``).join('\n'))
+                .setTimestamp()
+                .setFooter({ text: 'Permission List' });
+
+            await message.channel.send({ embeds: [embed] })
         }
     }
 });
@@ -2409,22 +2607,17 @@ client.on('messageCreate', async message => {
 client.on('interactionCreate', async interaction => {
     if (interaction.customId.startsWith('drawButton')) {
         try {
-            await interaction.deferUpdate(); // Acknowledge the interaction immediately
-
+            await interaction.deferUpdate();
             const buttonID = interaction.customId.replace('drawButton ', '').split('_')[0];
             let buttonLabel;
 
-            // Map button IDs to labels if they are for larger buttons
             if (['upscaleSubtle', 'upscaleCreative', 'varySubtle', 'varyStrong', 'varyRegion', 'zoomOut2x', 'zoomOut1.5x', 'leftArrow', 'rightArrow', 'upArrow', 'downArrow'].includes(buttonID)) {
-                // If it's one of the larger buttons, use the label
-                const button = interaction.component; // Get the component that triggered the interaction
-                buttonLabel = button.label; // Get the label of the button
+                const button = interaction.component;
+                buttonLabel = button.label;
             } else {
-                // Otherwise, use the button ID
                 buttonLabel = buttonID;
             }
 
-            // Check if the button is one of U1, U2, U3, U4
             if (['U1', 'U2', 'U3', 'U4'].includes(buttonID)) {
                 const data = await updateWithAssistant(interaction.user.id, buttonLabel);
                 if (data === 'PROMPT FAILED, PLEASE RETRY.') {
@@ -2436,7 +2629,6 @@ client.on('interactionCreate', async interaction => {
 
                 const base64Image = data.imageData;
                 if (base64Image) {
-                    // Replace buttons for U1, U2, U3, U4
                     const row1 = new Discord.ActionRowBuilder()
                         .addComponents(
                             new Discord.ButtonBuilder()
@@ -2692,7 +2884,6 @@ async function startBlackjackGame(message, participants) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
-setInterval(sendReminderMessage, 30 * 60 * 1000); // 20 minutes in milliseconds
 
 async function loadNotes() {
     try {
