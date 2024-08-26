@@ -86,6 +86,7 @@ const validGptRoleIds = database.collection('validGptRoleIds');
 const autoDeleteCollection = database.collection('autoDelete');
 const blacklistCollection = database.collection('blacklist');
 const timezoneCollection = database.collection('timezones');
+const baseRoleCollection = database.collection('baseRoles');
 const currencyCollection = database.collection('currency');
 const logChannels = database.collection('LogChannels');
 const roleCollection = database.collection('RoleIDs');
@@ -906,7 +907,31 @@ async function updateAura(userId, amount) {
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
     if (oldMember.premiumSince === null && newMember.premiumSince !== null) {
-        console.log(`${newMember.user.tag} just boosted the server!`);
+        // The member just started boosting
+        const boosterRoleData = await boosterRolesCollection.findOne({ userId: newMember.id, guildId: newMember.guild.id });
+
+        if (boosterRoleData) {
+            const boosterRole = newMember.guild.roles.cache.get(boosterRoleData.roleId);
+            if (boosterRole && !newMember.roles.cache.has(boosterRole.id)) {
+                await newMember.roles.add(boosterRole);
+                console.log(`${newMember.user.tag} just boosted the server and their booster role was assigned.`);
+            }
+        } else {
+            console.log(`${newMember.user.tag} just boosted the server, but no booster role is set up yet.`);
+        }
+    }
+
+    if (oldMember.premiumSince !== null && newMember.premiumSince === null) {
+        // The member stopped boosting
+        const boosterRoleData = await boosterRolesCollection.findOne({ userId: newMember.id, guildId: newMember.guild.id });
+
+        if (boosterRoleData) {
+            const boosterRole = newMember.guild.roles.cache.get(boosterRoleData.roleId);
+            if (boosterRole && newMember.roles.cache.has(boosterRole.id)) {
+                await newMember.roles.remove(boosterRole);
+                console.log(`${newMember.user.tag} stopped boosting, so their booster role was removed (but not deleted).`);
+            }
+        }
     }
 
     if (!oldMember.isCommunicationDisabled() && newMember.isCommunicationDisabled()) {
@@ -2286,191 +2311,208 @@ client.on('messageCreate', async message => {
             });
 
             message.channel.send('🔓 The lockdown has been lifted. Members can now type again.');
-        } else if (message.content.startsWith('!boosterrole') || message.content.startsWith('!br')) {
-
+        } else if (command === '!boosterrole' || command === '!br') {
             if (!message.member.premiumSince) {
                 return message.reply('This command is only for server boosters.');
             }
 
+            console.log('test')
             const subcommand = args[1];
-            if (subcommand === 'list') {
-                const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
+            let boosterRoleData = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
 
-                if (boosterRoles.length === 0) {
-                    return message.reply('No booster roles found in this server.');
-                }
+            // Fetch the actual role from the guild if the role is found in the database
+            let boosterRole = boosterRoleData ? message.guild.roles.cache.get(boosterRoleData.roleId) : null;
 
-                // Pagination settings
-                const pageSize = 10; // Number of roles per page
-                let currentIndex = 0;
-
-                // Function to create the embed based on the current index
-                function createRoleEmbed(index) {
-                    const slicedRoles = boosterRoles.slice(index, index + pageSize);
-                    const embed = new Discord.EmbedBuilder()
-                        .setTitle('Booster Roles')
-                        .setColor('#5865F2')
-                        .setDescription(slicedRoles.map((role, idx) => `${index + idx + 1}. <@&${role.roleId}>`).join('\n'))
-                        .setFooter({ text: `Page ${Math.floor(index / pageSize) + 1} of ${Math.ceil(boosterRoles.length / pageSize)}` });
-                    return embed;
-                }
-
-                // Create buttons
-                const row = new Discord.ActionRowBuilder()
-                    .addComponents(
-                        new Discord.ButtonBuilder()
-                            .setCustomId('prev')
-                            .setLabel('←')
-                            .setStyle(Discord.ButtonStyle.Primary)
-                            .setDisabled(currentIndex === 0),
-                        new Discord.ButtonBuilder()
-                            .setCustomId('next')
-                            .setLabel('→')
-                            .setStyle(Discord.ButtonStyle.Primary)
-                            .setDisabled(currentIndex + pageSize >= boosterRoles.length)
-                    );
-
-                const roleEmbed = createRoleEmbed(currentIndex);
-                const listMessage = await message.channel.send({ embeds: [roleEmbed], components: [row] });
-
-                const filter = i => i.user.id === message.author.id;
-                const collector = listMessage.createMessageComponentCollector({ filter, time: 60000 });
-
-                collector.on('collect', async i => {
-                    if (i.customId === 'prev' && currentIndex > 0) {
-                        currentIndex -= pageSize;
-                    } else if (i.customId === 'next' && currentIndex + pageSize < boosterRoles.length) {
-                        currentIndex += pageSize;
-                    }
-
-                    await i.update({
-                        embeds: [createRoleEmbed(currentIndex)],
-                        components: [
-                            new Discord.ActionRowBuilder()
-                                .addComponents(
-                                    new Discord.ButtonBuilder()
-                                        .setCustomId('prev')
-                                        .setLabel('←')
-                                        .setStyle(Discord.ButtonStyle.Primary)
-                                        .setDisabled(currentIndex === 0),
-                                    new Discord.ButtonBuilder()
-                                        .setCustomId('next')
-                                        .setLabel('→')
-                                        .setStyle(Discord.ButtonStyle.Primary)
-                                        .setDisabled(currentIndex + pageSize >= boosterRoles.length)
-                                )
-                        ]
-                    });
-                });
-
-                collector.on('end', () => {
-                    listMessage.edit({ components: [] });
-                });
-            } else {
-                let boosterRole = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
-
+            if (['remove', 'icon', 'rename'].includes(subcommand)) {
                 if (!boosterRole) {
-                    // Create the new role if not found in the database
-                    boosterRole = await message.guild.roles.create({
-                        name: `${message.member.displayName}'s Booster Role`,
-                        color: '#ffffff',
-                        permissions: [],
-                        mentionable: false,
-                        reason: `Custom role for ${message.member.displayName} as a server booster`
-                    });
-
-                    await message.member.roles.add(boosterRole);
-
-                    // Save the role to the database
-                    await boosterRolesCollection.insertOne({
-                        userId: message.member.id,
-                        guildId: message.guild.id,
-                        roleId: boosterRole.id
-                    });
-
-                } else {
-                    // Fetch the existing role if found in the database
-                    boosterRole = message.guild.roles.cache.get(boosterRole.roleId);
-
-                    if (!boosterRole) {
-                        // Handle the case where the role might have been deleted externally
-                        return message.reply('Your custom booster role seems to have been deleted. Please contact the server admin.');
+                    if (boosterRoleData) {
+                        // If the role is missing in the guild but present in the database, clean up the database entry
+                        await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
                     }
-                }
-
-                switch (subcommand) {
-                    case 'icon':
-                        const iconArg = args[1];
-                        const attachment = message.attachments.first();
-
-                        if (attachment) {
-                            // If the user provided an attachment, use it as the icon
-                            await boosterRole.setIcon(attachment.url)
-                                .then(() => message.reply('Role icon updated using the attachment!'))
-                                .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
-                        } else if (iconArg && iconArg.startsWith('<:') && iconArg.endsWith('>')) {
-                            // If the user provided a custom emoji, extract the emoji ID
-                            const emojiId = iconArg.split(':')[2].replace('>', '');
-                            const emojiUrl = `https://cdn.discordapp.com/emojis/${emojiId}.png`;
-
-                            await boosterRole.setIcon(emojiUrl)
-                                .then(() => message.reply('Role icon updated using the custom emoji!'))
-                                .catch(err => message.reply(`Failed to update role icon: ${err.message}`));
-                        } else {
-                            message.reply('Please provide either an attachment or a valid custom emoji.');
-                        }
-                        break;
-
-                    case 'rename':
-                        const newName = args.slice(1).join(' ');
-                        if (!newName) return message.reply('Please provide a new name.');
-
-                        await boosterRole.setName(newName)
-                            .then(() => message.reply('Role name updated!'))
-                            .catch(err => message.reply(`Failed to update role name: ${err.message}`));
-                        break;
-
-                    case 'remove':
-                        await boosterRole.delete()
-                            .then(async () => {
-                                await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
-                                message.reply('Booster role removed.');
-                            })
-                            .catch(err => message.reply(`Failed to remove role: ${err.message}`));
-                        break;
-
-                    default:
-                        const hexCode = args[0];
-                        let roleName = args.slice(1).join(' ');
-
-                        if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) {
-                            return message.reply('Invalid format, please follow this format: `!br #ffffff <rolename>`.');
-                        }
-
-                        if (!roleName) {
-                            roleName = message.member.displayName
-                        }
-
-                        await boosterRole.edit({ color: hexCode, name: roleName })
-                            .then(() => message.reply(`Role updated with color ${hexCode} and name ${roleName}`))
-                            .catch(err => message.reply(`Failed to update role: ${err.message}`));
-                        break;
+                    return message.reply('You need to first create a role using `!br hexcode name`.');
                 }
             }
+
+            switch (subcommand) {
+                case 'list':
+                    const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
+                    if (boosterRoles.length === 0) {
+                        return message.reply('No booster roles found in this server.');
+                    }
+
+                    const pageSize = 10;
+                    let currentIndex = 0;
+
+                    function createRoleEmbed(index) {
+                        const slicedRoles = boosterRoles.slice(index, index + pageSize);
+                        const embed = new Discord.EmbedBuilder()
+                            .setTitle('Booster Roles')
+                            .setColor('#5865F2')
+                            .setDescription(slicedRoles.map((role, idx) => `${index + idx + 1}. <@&${role.roleId}>`).join('\n'))
+                            .setFooter({ text: `Page ${Math.floor(index / pageSize) + 1} of ${Math.ceil(boosterRoles.length / pageSize)}` });
+                        return embed;
+                    }
+
+                    const row = new Discord.ActionRowBuilder()
+                        .addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId('prev')
+                                .setLabel('←')
+                                .setStyle(Discord.ButtonStyle.Primary)
+                                .setDisabled(currentIndex === 0),
+                            new Discord.ButtonBuilder()
+                                .setCustomId('next')
+                                .setLabel('→')
+                                .setStyle(Discord.ButtonStyle.Primary)
+                                .setDisabled(currentIndex + pageSize >= boosterRoles.length)
+                        );
+
+                    const roleEmbed = createRoleEmbed(currentIndex);
+                    const listMessage = await message.channel.send({ embeds: [roleEmbed], components: [row] });
+
+                    const filter = i => i.user.id === message.author.id;
+                    const collector = listMessage.createMessageComponentCollector({ filter, time: 60000 });
+
+                    collector.on('collect', async i => {
+                        if (i.customId === 'prev' && currentIndex > 0) {
+                            currentIndex -= pageSize;
+                        } else if (i.customId === 'next' && currentIndex + pageSize < boosterRoles.length) {
+                            currentIndex += pageSize;
+                        }
+
+                        await i.update({
+                            embeds: [createRoleEmbed(currentIndex)],
+                            components: [
+                                new Discord.ActionRowBuilder()
+                                    .addComponents(
+                                        new Discord.ButtonBuilder()
+                                            .setCustomId('prev')
+                                            .setLabel('←')
+                                            .setStyle(Discord.ButtonStyle.Primary)
+                                            .setDisabled(currentIndex === 0),
+                                        new Discord.ButtonBuilder()
+                                            .setCustomId('next')
+                                            .setLabel('→')
+                                            .setStyle(Discord.ButtonStyle.Primary)
+                                            .setDisabled(currentIndex + pageSize >= boosterRoles.length)
+                                    )
+                            ]
+                        });
+                    });
+
+                    collector.on('end', () => {
+                        listMessage.edit({ components: [] });
+                    });
+                    break;
+
+                case 'icon':
+                    const iconArg = args[2];
+                    const attachment = message.attachments.first();
+
+                    if (attachment) {
+                        await boosterRole.setIcon(attachment.url);
+                    } else if (iconArg && iconArg.startsWith('<:') && iconArg.endsWith('>')) {
+                        const emojiId = iconArg.split(':')[2].replace('>', '');
+                        const emojiUrl = `https://cdn.discordapp.com/emojis/${emojiId}.png`;
+                        await boosterRole.setIcon(emojiUrl);
+                    } else {
+                        message.reply('Please provide either an attachment or a valid custom emoji.');
+                    }
+                    break;
+
+                case 'rename':
+                    const newName = args.slice(2).join(' ');
+                    if (!newName) return message.reply('Please provide a new name.');
+                    await boosterRole.setName(newName);
+                    await message.reply('Your booster role has been renamed to ' + newName + '.');
+                    break;
+
+                case 'remove':
+                    await boosterRole.delete();
+                    await boosterRolesCollection.deleteOne({ userId: message.member.id, guildId: message.guild.id });
+                    await message.reply('Your booster role has been deleted.');
+                    break;
+
+                default:
+                    let hexCode = args[1];
+                    let roleName = args.slice(2).join(' ');
+
+                    if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) {
+                        return message.reply('Invalid format, please follow this format: `!br #ffffff <rolename>`.');
+                    }
+
+                    if (!hexCode.startsWith('#')) {
+                        hexCode = '#' + hexCode;
+                    }
+
+                    if (!boosterRole) {
+                        if (!roleName) {
+                            roleName = message.member.displayName;
+                        }
+
+                        boosterRole = await message.guild.roles.create({
+                            name: roleName,
+                            color: hexCode,
+                            permissions: [],
+                            mentionable: false,
+                            reason: `Custom role for ${message.member.displayName} as a server booster`
+                        });
+
+                        await message.member.roles.add(boosterRole);
+
+                        await boosterRolesCollection.insertOne({
+                            userId: message.member.id,
+                            guildId: message.guild.id,
+                            roleId: boosterRole.id
+                        });
+
+                        const baseRoleData = await baseRoleCollection.findOne({ guildId: message.guild.id });
+                        if (baseRoleData) {
+                            const baseRole = message.guild.roles.cache.get(baseRoleData.baseRoleId);
+                            if (baseRole) {
+                                await boosterRole.setPosition(baseRole.position + 1)
+                            }
+                        }
+                        await message.reply(`Created new role: <@&${boosterRole.id}>.`)
+                    } else {
+                        if (roleName) {
+                            await boosterRole.edit({ color: hexCode, name: roleName });
+                        } else {
+                            await boosterRole.edit({ color: hexCode });
+                        }
+
+                        if (!message.member.roles.cache.has(boosterRole.id)) {
+                            await message.member.roles.add(boosterRole);
+                        }
+                        await message.reply(`Updated role: <@&${boosterRole.id}>.`)
+                    }
+
+                    break;
+            }
         } else if (message.content.startsWith('!baserole')) {
-            const args = message.content.split(' ').slice(1);
-            const baseRole = message.mentions.roles.first();
+            const roleIdentifier = args[1];
+            const baseRole = message.mentions.roles.first() ||
+                message.guild.roles.cache.get(roleIdentifier) ||
+                message.guild.roles.cache.find(r => r.name.toLowerCase().includes(roleIdentifier.toLowerCase()));
 
-            if (!baseRole) return message.reply('Please mention a role.');
+            if (!baseRole) return message.reply('Please mention a valid role.');
 
+            // Save the base role in the database
+            await baseRoleCollection.updateOne(
+                { guildId: message.guild.id },
+                { $set: { baseRoleId: baseRole.id } },
+                { upsert: true }
+            );
+
+            message.reply(`Set ${baseRole.name} as the base role for this server.`);
+
+            // Update existing booster roles to be above the base role
             const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
 
             boosterRoles.forEach(async (boosterRole) => {
                 const role = message.guild.roles.cache.get(boosterRole.roleId);
                 if (role) {
                     await role.setPosition(baseRole.position + 1)
-                        .then(() => message.reply(`Moved role ${role.name} above ${baseRole.name}.`))
-                        .catch(err => message.reply(`Failed to move role: ${err.message}`));
                 }
             });
         } else if (command === '!lock') {
