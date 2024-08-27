@@ -618,26 +618,36 @@ const permissionMapping = {
 
 async function checkRolePermission(message, command) {
     const userRoles = message.member.roles.cache.map(role => role.id);
-    const commandPermissions = await commandPermissionsCollection.findOne({
+
+    const adminPermissions = await commandPermissionsCollection.findOne({
         guildId: message.guild.id,
-        $or: [
-            { command: command },
-            { command: "administrator" }
-        ]
+        command: "administrator"
     });
 
-    // Check if the user has the permission directly
-    if (permissionMapping[command]) {
-        if (message.member.permissions.has(permissionMapping[command]) || message.member.permissions.has(permissionMapping['administrator'])) {
+    if (adminPermissions) {
+        if (userRoles.some(role => adminPermissions.allowedRoles.includes(role))) {
             return true;
         }
     }
 
-    // Check for custom role-based permissions
-    console.log(commandPermissions)
+    const commandPermissions = await commandPermissionsCollection.findOne({
+        guildId: message.guild.id,
+        command: command
+    });
+
     if (commandPermissions) {
-        console.log(userRoles, commandPermissions.allowedRoles)
-        return userRoles.some(role => commandPermissions.allowedRoles.includes(role));
+        if (userRoles.some(role => commandPermissions.allowedRoles.includes(role))) {
+            return true;
+        }
+    }
+
+    if (permissionMapping[command]) {
+        if (
+            message.member.permissions.has(permissionMapping[command]) ||
+            message.member.permissions.has(permissionMapping['administrator'])
+        ) {
+            return true;
+        }
     }
 
     return false;
