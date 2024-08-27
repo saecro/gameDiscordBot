@@ -207,7 +207,10 @@ const validPermissions = [
     'manage_nicknames',
     'manage_roles',
     'ban_members',
-    'kick_members'
+    'kick_members',
+    'mute_members',
+    'deafen_members',
+    'move_members',
 ];
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -2505,32 +2508,34 @@ client.on('messageCreate', async message => {
 
                     break;
             }
-        } else if (message.content.startsWith('!baserole')) {
-            const roleIdentifier = args[1];
-            const baseRole = message.mentions.roles.first() ||
-                message.guild.roles.cache.get(roleIdentifier) ||
-                message.guild.roles.cache.find(r => r.name.toLowerCase().includes(roleIdentifier.toLowerCase()));
+        } else if (command === '!baserole') {
+            if (checkRolePermission(message, 'manage_roles')) {
+                const roleIdentifier = args[1];
+                const baseRole = message.mentions.roles.first() ||
+                    message.guild.roles.cache.get(roleIdentifier) ||
+                    message.guild.roles.cache.find(r => r.name.toLowerCase().includes(roleIdentifier.toLowerCase()));
 
-            if (!baseRole) return message.reply('Please mention a valid role.');
+                if (!baseRole) return message.reply('Please mention a valid role.');
 
-            // Save the base role in the database
-            await baseRoleCollection.updateOne(
-                { guildId: message.guild.id },
-                { $set: { baseRoleId: baseRole.id } },
-                { upsert: true }
-            );
+                // Save the base role in the database
+                await baseRoleCollection.updateOne(
+                    { guildId: message.guild.id },
+                    { $set: { baseRoleId: baseRole.id } },
+                    { upsert: true }
+                );
 
-            message.reply(`Set ${baseRole.name} as the base role for this server.`);
+                message.reply(`Set ${baseRole.name} as the base role for this server.`);
 
-            // Update existing booster roles to be above the base role
-            const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
+                // Update existing booster roles to be above the base role
+                const boosterRoles = await boosterRolesCollection.find({ guildId: message.guild.id }).toArray();
 
-            boosterRoles.forEach(async (boosterRole) => {
-                const role = message.guild.roles.cache.get(boosterRole.roleId);
-                if (role) {
-                    await role.setPosition(baseRole.position + 1)
-                }
-            });
+                boosterRoles.forEach(async (boosterRole) => {
+                    const role = message.guild.roles.cache.get(boosterRole.roleId);
+                    if (role) {
+                        await role.setPosition(baseRole.position + 1)
+                    }
+                });
+            }
         } else if (command === '!lock') {
             await message.channel.permissionOverwrites.edit(everyoneRole, {
                 SendMessages: false
@@ -2610,9 +2615,9 @@ client.on('messageCreate', async message => {
         } else if (command === '!fakepermission' || command === '!fp') {
             if (userId === message.guild.ownerId) {
 
+                const roleIdentifier = args[1]; // Role mention, ID, or name
                 const action = args[2]; // 'grant' or 'revoke'
                 const permission = args[3]; // Permission being granted or revoked
-                const roleIdentifier = args[1]; // Role mention, ID, or name
 
 
                 console.log(action, permission, args)
@@ -2653,7 +2658,7 @@ client.on('messageCreate', async message => {
             const embed = new Discord.EmbedBuilder()
                 .setColor(0x0099ff)
                 .setTitle('Valid Permissions')
-                .setDescription(validPermissions.map(permission => `- \`${permission}\``).join('\n'))
+                .setDescription('Example Usage: `!fp admin grant administrator`\n' + validPermissions.map(permission => `- \`${permission}\``).join('\n'))
                 .setTimestamp()
                 .setFooter({ text: 'Permission List' });
 
