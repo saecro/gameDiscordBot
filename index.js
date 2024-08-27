@@ -1,3 +1,5 @@
+const stringSimilarity = require('string-similarity');
+const crypto = require('crypto');
 const schedule = require('node-schedule');
 const express = require('express');
 const session = require('express-session');
@@ -22,6 +24,8 @@ const cooldowns = {
     gpt: new Map(),
     gptdraw: new Map()
 };
+
+const colours = JSON.parse(fs.readFileSync(path.join(__dirname, 'colours.json'), 'utf8'));
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -2316,7 +2320,6 @@ client.on('messageCreate', async message => {
                 return message.reply('This command is only for server boosters.');
             }
 
-            console.log('test')
             const subcommand = args[1];
             let boosterRoleData = await boosterRolesCollection.findOne({ userId: message.member.id, guildId: message.guild.id });
 
@@ -2438,9 +2441,22 @@ client.on('messageCreate', async message => {
                     let roleName = args.slice(2).join(' ');
 
                     if (!/^#?[0-9A-Fa-f]{6}$/.test(hexCode)) {
-                        return message.reply('Invalid format, please follow this format: `!br #ffffff <rolename>`.');
-                    }
+                        // Load colours.json if the input is not a hex code and check for matching color names
+                        const colours = JSON.parse(fs.readFileSync(path.join(__dirname, 'colours.json'), 'utf8'));
+                        const colorNames = colours.map(color => color.bestName.toLowerCase());
 
+                        // Use string similarity to find the closest match
+                        const bestMatch = stringSimilarity.findBestMatch(hexCode.toLowerCase(), colorNames);
+
+                        if (bestMatch.bestMatch.rating >= 0.6) { // Threshold for accepting a close match
+                            const matchedColor = colours.find(color => color.bestName.toLowerCase() === bestMatch.bestMatch.target);
+                            hexCode = matchedColor.hexCode;
+                        } else {
+                            // If no match, generate a hash from the input text to create a color
+                            const hash = crypto.createHash('md5').update(hexCode).digest('hex');
+                            hexCode = `#${hash.slice(0, 6)}`;
+                        }
+                    }
                     if (!hexCode.startsWith('#')) {
                         hexCode = '#' + hexCode;
                     }
